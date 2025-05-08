@@ -1,12 +1,10 @@
 import json
-import requests
-from lxml import etree
 from elasticsearch import Elasticsearch
 from apache_beam import DoFn, pvalue, metrics, io
 from apache_beam.io.filesystems import FileSystems
 from pygbif import species as gbif_spp, occurrences as gbif_occ
 from utils.helpers import sanitize_species_name
-
+import time
 
 class FetchESFn(DoFn):
     def __init__(self, host, user, password, index, page_size, max_pages, *unused_args, **unused_kwargs):
@@ -51,82 +49,77 @@ class FetchESFn(DoFn):
             after = hits[-1].get('sort')
 
 
-# class ENATaxonomyFn(DoFn):
-#     def __init__(self, include_lineage=False):
-#         self.include_lineage = include_lineage
-#
-#     def process(self, record):
-#         tax_id = record.get('tax_id')
-#         if not tax_id:
-#             yield record
-#             return
-#
-#         url = f'https://www.ebi.ac.uk/ena/browser/api/xml/{tax_id}'
-#         resp = requests.get(url)
-#         root = etree.fromstring(resp.content)
-#
-#         record['scientificName'] = root.find('taxon').get('scientificName')
-#         if self.include_lineage:
-#             ranks = ['kingdom', 'phylum', 'class', 'order', 'family', 'genus']
-#             for rank in ranks:
-#                 record[rank] = None
-#             lineage = root.find('taxon/lineage')
-#             if lineage is not None:
-#                 for tx in lineage.findall('taxon'):
-#                     r = tx.get('rank')
-#                     if r in ranks:
-#                         record[r] = tx.get('scientificName')
-#         yield record
 
 class ENATaxonomyFn(DoFn):
     """
-    Fetches taxonomy information from ENA using the species tax_id.
-    Yields enriched records or records with an 'ena_error' field if the request or parsing fails.
+    Fetches taxonomy info from ENA by tax_id.
+    Includes retry with backoff and optional sleep for throttling.
     """
 
-    def __init__(self, include_lineage: bool = True):
+    def __init__(self, include_lineage=True, sleep_seconds=0.25, max_retries=3):
         self.include_lineage = include_lineage
-        self.timeout = 10  # seconds
+        self.sleep_seconds = sleep_seconds
+        self.timeout = 10
+        self.max_retries = max_retries
+
+    def setup(self):
+        import requests
+        from lxml import etree
+        self.requests = requests
+        self.etree = etree
+
+    def get_with_retries(self, url):
+        for i in range(self.max_retries):
+            try:
+                resp = self.requests.get(url, timeout=self.timeout)
+                resp.raise_for_status()
+                return resp
+            except Exception as e:
+                if i < self.max_retries - 1:
+                    time.sleep(1.5 ** i)
+                else:
+                    raise e
 
     def process(self, record):
-        tax_id = record.get('tax_id')
+        tax_id = record.get("tax_id")
         if not tax_id:
-            record['ena_error'] = 'Missing tax_id'
+            record["ena_error"] = "Missing tax_id"
             yield record
             return
 
-        url = f'https://www.ebi.ac.uk/ena/browser/api/xml/{tax_id}'
+        if self.sleep_seconds:
+            time.sleep(self.sleep_seconds)
+
+        url = f"https://www.ebi.ac.uk/ena/browser/api/xml/{tax_id}"
 
         try:
-            resp = requests.get(url, timeout=self.timeout)
-            resp.raise_for_status()
-            root = etree.fromstring(resp.content)
-        except (requests.RequestException, etree.XMLSyntaxError) as e:
-            record['ena_error'] = str(e)
+            resp = self.get_with_retries(url)
+            root = self.etree.fromstring(resp.content)
+        except Exception as e:
+            record["ena_error"] = f"Retry failed: {str(e)}"
             yield record
             return
 
         try:
-            record['scientificName'] = root.find('taxon').get('scientificName')
+            record["scientificName"] = root.find("taxon").get("scientificName")
         except Exception:
-            record['ena_error'] = 'Missing scientificName'
+            record["ena_error"] = "Missing scientificName"
             yield record
             return
 
         if self.include_lineage:
-            lineage_fields = ['kingdom', 'phylum', 'class', 'order', 'family', 'genus']
-            for rank in lineage_fields:
-                record[rank] = None
+            lineage_fields = ["kingdom", "phylum", "class", "order", "family", "genus"]
+            for f in lineage_fields:
+                record[f] = None
             try:
-                for taxon in root.find('taxon').find('lineage').findall('taxon'):
-                    rank = taxon.get('rank')
+                for taxon in root.find("taxon").find("lineage").findall("taxon"):
+                    rank = taxon.get("rank")
                     if rank in lineage_fields:
-                        record[rank] = taxon.get('scientificName')
+                        record[rank] = taxon.get("scientificName")
             except Exception:
-                record['ena_warning'] = 'Lineage parsing failed'
+                record["ena_warning"] = "Lineage parsing failed"
 
         yield record
-
 
 
 class ValidateNamesFn(DoFn):
