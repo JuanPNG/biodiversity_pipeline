@@ -1,66 +1,83 @@
 import argparse
 import json
 import apache_beam as beam
-from apache_beam.options.pipeline_options import PipelineOptions
+from apache_beam.options.pipeline_options import PipelineOptions, SetupOptions
+from apache_beam.metrics import MetricsFilter
+from apache_beam.io.filesystems import FileSystems
 
 from utils.transforms import WriteSpeciesOccurrencesFn
 
 
 def occurrences_pipeline(args, beam_args):
-    options = PipelineOptions(beam_args)
-    with beam.Pipeline(options=options) as p:
+    pipeline_options = PipelineOptions(beam_args)
+    pipeline_options.view_as(SetupOptions).save_main_session = True
+
+    with beam.Pipeline(options=pipeline_options) as p:
+        # Read validated species input
         records = (
             p
-            | 'ReadValidatedFile' >> beam.io.ReadFromText(args.validated_input)
-            | 'ParseValidatedJson' >> beam.Map(json.loads)
+            | "ReadValidatedSpecies" >> beam.io.ReadFromText(args.validated_input)
+            | "ParseJSON" >> beam.Map(json.loads)
         )
 
-        results = records | 'FetchAndWriteOccurrences' >> beam.ParDo(
-            WriteSpeciesOccurrencesFn(
-                output_dir=args.output_dir,
-                max_records=args.limit
+        # Fetch and write occurrences per species with side output for dead records
+        results = (
+            records
+            | "FetchAndWriteOccurrences" >> beam.ParDo(
+                WriteSpeciesOccurrencesFn(
+                    output_dir=args.output_dir,
+                    max_records=args.limit
+                )
+            ).with_outputs("dead", main="success")
+        )
+
+        # Write dead-letter records only if any
+        _ = (
+            results.dead
+            | "FilterDeadRecords" >> beam.Filter(lambda r: r is not None)
+            | "WriteDeadLetters" >> beam.io.WriteToText(
+                file_path_prefix=args.output_dir + "/dead_records",
+                file_name_suffix=".jsonl",
+                num_shards=1,
+                shard_name_template="",
+                skip_if_empty=True
             )
-        ).with_outputs('dead', main='success')
-
-        success = results.success
-        dead = results.dead
-
-        summary = (
-            success
-            | 'SuccessToKeyValue' >> beam.Map(lambda r: ('written', 1))
-            | 'CountSuccesses' >> beam.CombinePerKey(sum)
         )
 
-        dead_summary = (
-            dead
-            | 'DeadToKeyValue' >> beam.Map(lambda r: ('failed', 1))
-            | 'CountFailures' >> beam.CombinePerKey(sum)
-        )
+    # Post-pipeline: extract metrics and write summary
+    result = p.run()
+    result.wait_until_finish()
 
-        merged_summary = ((summary, dead_summary)
-            | 'FlattenSummary' >> beam.Flatten())
+    query = result.metrics().query(MetricsFilter().with_namespace("WriteSpeciesOccurrencesFn"))
 
-        merged_summary | 'WriteSummary' >> beam.io.WriteToText(
-            file_path_prefix=args.output_dir + '/summary',
-            file_name_suffix='.jsonl',
-            num_shards=1,
-            shard_name_template='')
+    success = skipped = failures = 0
+    for counter in query['counters']:
+        name = counter.key.metric.name
+        value = counter.committed
+        if name == "SUCCESS":
+            success = value
+        elif name == "SKIPPED":
+            skipped = value
+        elif name == "FAILURES":
+            failures = value
 
-        _ = (dead
-             | 'FilterDeadIfNotEmpty' >> beam.Filter(lambda x: x is not None)
-             | 'WriteDeadRecords' >> beam.io.WriteToText(
-                 file_path_prefix=args.output_dir + '/dead_records',
-                 file_name_suffix='.jsonl',
-                 num_shards=1,
-                 shard_name_template='')
-        )
+    summary = {
+        "SUCCESS": success,
+        "SKIPPED": skipped,
+        "FAILURES": failures
+    }
+
+    with FileSystems.create(args.output_dir + "/summary.jsonl") as f:
+        f.write(json.dumps(summary).encode("utf-8"))
+        f.write(b"\n")
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='GBIF Occurrence Pipeline')
-    parser.add_argument('--validated_input', required=True)
-    parser.add_argument('--output_dir', required=True)
-    parser.add_argument('--limit', type=int, default=150)
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Fetch and write GBIF occurrences per species")
+
+    parser.add_argument("--validated_input", required=True, help="Path to validated taxonomy JSONL file")
+    parser.add_argument("--output_dir", required=True, help="Directory to store occurrence files")
+    parser.add_argument("--limit", type=int, default=150, help="Max GBIF occurrences per species")
 
     args, beam_args = parser.parse_known_args()
     occurrences_pipeline(args, beam_args)
