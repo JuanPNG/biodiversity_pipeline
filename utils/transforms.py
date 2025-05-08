@@ -1,6 +1,7 @@
 import json
 from elasticsearch import Elasticsearch
-from apache_beam import DoFn, pvalue, metrics, io
+from apache_beam import DoFn, pvalue
+from apache_beam.metrics import Metrics
 from apache_beam.io.filesystems import FileSystems
 from pygbif import species as gbif_spp, occurrences as gbif_occ
 from utils.helpers import sanitize_species_name
@@ -47,7 +48,6 @@ class FetchESFn(DoFn):
                 }
 
             after = hits[-1].get('sort')
-
 
 
 class ENATaxonomyFn(DoFn):
@@ -155,69 +155,77 @@ class ValidateNamesFn(DoFn):
 
 
 class WriteSpeciesOccurrencesFn(DoFn):
-    SUCCESS = metrics.Metrics.counter('WriteOcc', 'success')
-    SKIPPED = metrics.Metrics.counter('WriteOcc', 'skipped')
-    FAILURES = metrics.Metrics.counter('WriteOcc', 'failures')
+    """
+    For each validated species record, fetches GBIF occurrences and writes to one file per species.
+    Tracks success, skipped, and failed records using Beam metrics.
+    """
 
     def __init__(self, output_dir, max_records=150):
         self.output_dir = output_dir
         self.max_records = max_records
+
+        # Beam metrics
+        self.success_counter = Metrics.counter("WriteSpeciesOccurrencesFn", "SUCCESS")
+        self.skipped_counter = Metrics.counter("WriteSpeciesOccurrencesFn", "SKIPPED")
+        self.failure_counter = Metrics.counter("WriteSpeciesOccurrencesFn", "FAILURES")
 
     def setup(self):
         self.gbif_client = gbif_occ
 
     def process(self, record):
         species = record.get('species')
-        key = record.get('gbif_usageKey')
-        if not species or key is None:
+        usage_key = record.get('gbif_usageKey')
+
+        if not species or usage_key is None:
+            self.skipped_counter.inc()
+            yield {'species': species, 'status': 'skipped'}
             return
 
         safe_name = sanitize_species_name(species)
         filename = f"occ_{safe_name}.jsonl"
         out_path = f"{self.output_dir}/{filename}"
-        tmp_path = out_path + '.tmp'
-
-        if FileSystems.exists(out_path):
-            self.SKIPPED.inc()
-            yield {'species': species, 'status': 'skipped'}
-            return
+        tmp_path = out_path + ".tmp"
 
         try:
             resp = self.gbif_client.search(
-                taxonKey=key,
+                taxonKey=usage_key,
                 basisOfRecord=['PRESERVED_SPECIMEN', 'MATERIAL_SAMPLE'],
                 occurrenceStatus='PRESENT',
                 hasCoordinate=True,
                 hasGeospatialIssue=False,
                 limit=self.max_records
             )
-            results = resp.get('results', [])
 
-            lines = [json.dumps({
-                'accession': record.get('accession'),
-                'tax_id': record.get('tax_id'),
-                'gbif_usageKey': o.get('taxonKey'),
-                'species': o.get('species'),
-                'decimalLatitude': o.get('decimalLatitude'),
-                'decimalLongitude': o.get('decimalLongitude'),
-                'coordinateUncertaintyInMeters': o.get('coordinateUncertaintyInMeters'),
-                'eventDate': o.get('eventDate'),
-                'countryCode': o.get('countryCode'),
-                'basisOfRecord': o.get('basisOfRecord'),
-                'occurrenceID': o.get('occurrenceID'),
-                'gbifID': o.get('gbifID')
-            }) for o in results]
+            occurrences = resp.get('results', [])
+            lines = []
 
-            with FileSystems.create(tmp_path) as fh:
+            for occ in occurrences:
+                occ_out = {
+                    'accession': record.get('accession'),
+                    'tax_id': record.get('tax_id'),
+                    'gbif_usageKey': occ.get('taxonKey'),
+                    'species': occ.get('species'),
+                    'decimalLatitude': occ.get('decimalLatitude'),
+                    'decimalLongitude': occ.get('decimalLongitude'),
+                    'coordinateUncertaintyInMeters': occ.get('coordinateUncertaintyInMeters'),
+                    'eventDate': occ.get('eventDate'),
+                    'countryCode': occ.get('countryCode'),
+                    'basisOfRecord': occ.get('basisOfRecord'),
+                    'occurrenceID': occ.get('occurrenceID'),
+                    'gbifID': occ.get('gbifID')
+                }
+                lines.append(json.dumps(occ_out))
+
+            with FileSystems.create(tmp_path) as f:
                 for line in lines:
-                    fh.write((line + '\n').encode('utf-8'))
-
+                    f.write((line + '\n').encode('utf-8'))
             FileSystems.rename([tmp_path], [out_path])
-            self.SUCCESS.inc()
-            yield {'species': species, 'count': len(results)}
+
+            self.success_counter.inc()
+            yield {'species': species, 'count': len(occurrences)}
 
         except Exception as e:
-            self.FAILURES.inc()
+            self.failure_counter.inc()
             yield pvalue.TaggedOutput('dead', {
                 'species': species,
                 'error': str(e)
