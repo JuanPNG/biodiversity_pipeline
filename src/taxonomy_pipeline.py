@@ -8,11 +8,14 @@ from utils.transforms import FetchESFn, ENATaxonomyFn, ValidateNamesFn
 
 def taxonomy_pipeline(args, beam_args):
     options = PipelineOptions(beam_args)
+
     with beam.Pipeline(options=options) as p:
+
+        # Fetch species records from ElasticSearch
         es_records = (
             p
-            | 'StartESFetch' >> beam.Create([None])
-            | 'FetchFromES' >> beam.ParDo(FetchESFn(
+            | "Start" >> beam.Create([None])
+            | "FetchFromES" >> beam.ParDo(FetchESFn(
                 host=args.host,
                 user=args.user,
                 password=args.password,
@@ -22,34 +25,64 @@ def taxonomy_pipeline(args, beam_args):
             ))
         )
 
-        enriched = es_records | 'FetchENATaxonomy' >> beam.ParDo(ENATaxonomyFn(args.descendants))
-
-        validated_outputs = enriched | 'ValidateGBIFNames' >> beam.ParDo(ValidateNamesFn()).with_outputs(
-            ValidateNamesFn.TO_CHECK,
-            main=ValidateNamesFn.VALIDATED
+        # Enrich from ENA API (with retry + optional delay)
+        enriched = (
+            es_records
+            | "ReshuffleBeforeENA" >> beam.Reshuffle()
+            | "FetchENATaxonomy" >> beam.ParDo(ENATaxonomyFn(
+                sleep_seconds=args.sleep,
+                include_lineage=True
+            ))
+            | "ReshuffleAfterENA" >> beam.Reshuffle()
         )
 
-        validated_outputs[ValidateNamesFn.VALIDATED] \
-            | 'ToJsonValidated' >> beam.Map(json.dumps) \
-            | 'WriteValidated' >> beam.io.WriteToText(
-                args.output + '_validated', file_name_suffix='.jsonl', num_shards=1, shard_name_template='')
+        # Validate species names against GBIF
+        validated_output = (
+            enriched
+            | "ValidateGBIF" >> beam.ParDo(ValidateNamesFn()).with_outputs('unmatched', main='matched')
+        )
 
-        validated_outputs[ValidateNamesFn.TO_CHECK] \
-            | 'ToJsonToCheck' >> beam.Map(json.dumps) \
-            | 'WriteToCheck' >> beam.io.WriteToText(
-                args.output + '_tocheck', file_name_suffix='.jsonl', num_shards=1, shard_name_template='')
+        validated = validated_output.matched
+        unmatched = validated_output.unmatched
+
+        # Write validated records
+        (
+            validated
+            | "ToJSONValidated" >> beam.Map(json.dumps)
+            | "WriteValidated" >> beam.io.WriteToText(
+                file_path_prefix=args.output + "_validated",
+                file_name_suffix=".jsonl",
+                num_shards=1,
+                shard_name_template=""
+            )
+        )
+
+        # Write unmatched/fuzzy/synonym records
+        (
+            unmatched
+            | "ToJSONUnmatched" >> beam.Map(json.dumps)
+            | "WriteUnmatched" >> beam.io.WriteToText(
+                file_path_prefix=args.output + "_tocheck",
+                file_name_suffix=".jsonl",
+                num_shards=1,
+                shard_name_template=""
+            )
+        )
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='GBIF Taxonomy Validation Pipeline')
-    parser.add_argument('--host', required=True)
-    parser.add_argument('--user', required=True)
-    parser.add_argument('--password', required=True)
-    parser.add_argument('--index', required=True)
-    parser.add_argument('--size', type=int, default=1000)
-    parser.add_argument('--pages', type=int, default=10)
-    parser.add_argument('--descendants', action='store_true')
-    parser.add_argument('--output', required=True)
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Fetch and validate species taxonomy")
+
+    parser.add_argument("--host", required=True, help="Elasticsearch host URL")
+    parser.add_argument("--user", required=True, help="Elasticsearch username")
+    parser.add_argument("--password", required=True, help="Elasticsearch password")
+    parser.add_argument("--index", required=True, help="Elasticsearch index name")
+
+    parser.add_argument("--size", type=int, default=10, help="Page size from ES")
+    parser.add_argument("--pages", type=int, default=1, help="Max pages to fetch from ES")
+
+    parser.add_argument("--sleep", type=float, default=0.25, help="Delay (in seconds) between ENA requests")
+    parser.add_argument("--output", required=True, help="Output path prefix (no extension)")
 
     args, beam_args = parser.parse_known_args()
     taxonomy_pipeline(args, beam_args)
