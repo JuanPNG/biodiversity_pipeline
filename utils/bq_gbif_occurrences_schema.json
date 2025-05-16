@@ -1,0 +1,14 @@
+[
+  { "name": "accession", "type": "STRING", "mode": "NULLABLE" },
+  { "name": "tax_id", "type": "STRING", "mode": "NULLABLE" },
+  { "name": "gbif_usageKey", "type": "INTEGER", "mode": "NULLABLE" },
+  { "name": "species", "type": "STRING", "mode": "NULLABLE" },
+  { "name": "decimalLatitude", "type": "FLOAT", "mode": "NULLABLE" },
+  { "name": "decimalLongitude", "type": "FLOAT", "mode": "NULLABLE" },
+  { "name": "coordinateUncertaintyInMeters", "type": "FLOAT", "mode": "NULLABLE" },
+  { "name": "eventDate", "type": "STRING", "mode": "NULLABLE" },
+  { "name": "countryCode", "type": "STRING", "mode": "NULLABLE" },
+  { "name": "basisOfRecord", "type": "STRING", "mode": "NULLABLE" },
+  { "name": "occurrenceID", "type": "STRING", "mode": "NULLABLE" },
+  { "name": "gbifID", "type": "STRING", "mode": "NULLABLE" }
+]
