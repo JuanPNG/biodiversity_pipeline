@@ -49,18 +49,18 @@ def filter_invalid_coords(record):
     return record
 
 
-def filter_high_uncertainty(record, max_uncertainty):
+def filter_high_uncertainty(record, max_uncertainty=5000, min_uncertainty=1000):
     """
-   Filter out records with coordinate uncertainty above a specified threshold.
+    Filter out records with coordinate uncertainty outside [min_resolution, max_uncertainty].
 
-   Args:
-       record (dict): A single GBIF occurrence record with key 'coordinateUncertaintyInMeters'.
-       max_uncertainty (float or int): Maximum allowed uncertainty in meters.
+    Args:
+        record (dict): Occurrence record.
+        max_uncertainty (float): Maximum allowed uncertainty in meters.
+        min_uncertainty (float): Minimum resolution threshold (should match raster resolution).
 
-   Returns:
-       dict or None: The original record if its uncertainty is <= max_uncertainty;
-                     otherwise None to indicate filtering out.
-   """
+    Returns:
+        dict or None
+    """
     if record is None:
         return None
     raw_uncert = record.get('coordinateUncertaintyInMeters')
@@ -68,8 +68,10 @@ def filter_high_uncertainty(record, max_uncertainty):
         uncert = float(raw_uncert) if raw_uncert not in (None, "") else None
     except (TypeError, ValueError):
         return None
-    if uncert is None or uncert > max_uncertainty:
+
+    if uncert is None or uncert < min_uncertainty or uncert > max_uncertainty:
         return None
+
     return record
 
 
