@@ -1,11 +1,23 @@
 import json
+import os
+import numpy as np
+import pyproj
+import sys
+import rasterio
+import time
+
 from elasticsearch import Elasticsearch
 from apache_beam import DoFn, pvalue
 from apache_beam.metrics import Metrics
 from apache_beam.io.filesystems import FileSystems
+from collections import defaultdict
 from pygbif import species as gbif_spp, occurrences as gbif_occ
+from shapely import wkt
+from shapely.geometry import Point
+from shapely.ops import transform
+from rasterio.mask import mask
 from utils.helpers import sanitize_species_name
-import time
+
 
 class FetchESFn(DoFn):
     def __init__(self, host, user, password, index, page_size, max_pages, *unused_args, **unused_kwargs):
@@ -230,3 +242,154 @@ class WriteSpeciesOccurrencesFn(DoFn):
                 'species': species,
                 'error': str(e)
             })
+
+
+class GenerateUncertaintyAreaFn(DoFn):
+    def process(self, record):
+        lat = record.get("decimalLatitude")
+        lon = record.get("decimalLongitude")
+        radius = record.get("coordinateUncertaintyInMeters")
+
+        if lat is None or lon is None or radius in (None, "", "NaN"):
+            print(f"[WARN] Skipping record with missing coordinates or uncertainty: {record}", file=sys.stderr)
+            return
+
+        try:
+            lat = float(lat)
+            lon = float(lon)
+            radius = float(radius)
+        except (TypeError, ValueError):
+            print(f"[WARN] Invalid numeric values in record: {record}", file=sys.stderr)
+            return
+
+        # Define AEQD projection centered on the point
+        aeqd_proj = pyproj.Proj(proj='aeqd', lat_0=lat, lon_0=lon, datum='WGS84')
+        wgs84_proj = pyproj.Proj(proj='latlong', datum='WGS84')
+
+        project_to_aeqd = pyproj.Transformer.from_proj(wgs84_proj, aeqd_proj, always_xy=True).transform
+        project_to_wgs84 = pyproj.Transformer.from_proj(aeqd_proj, wgs84_proj, always_xy=True).transform
+
+        point_wgs84 = Point(lon, lat)
+        point_aeqd = transform(project_to_aeqd, point_wgs84)
+        buffer_aeqd = point_aeqd.buffer(radius)
+        buffer_wgs84 = transform(project_to_wgs84, buffer_aeqd)
+
+        updated = record.copy()
+        updated["uncertainty_geom_wkt"] = buffer_wgs84.wkt
+        yield updated
+
+
+class AnnotateWithCHELSAFn(DoFn):
+    def __init__(self, climate_dir):
+        self.climate_dir = climate_dir
+        self.layers = {}
+
+        self.temp_vars = {
+            'bio1', 'bio5', 'bio6', 'bio8', 'bio9', 'bio10', 'bio11'
+        }
+        self.precip_vars = {
+            'bio12', 'bio13', 'bio14', 'bio16', 'bio17', 'bio18', 'bio19'
+        }
+        self.raw_vars = {
+            'bio2', 'bio3', 'bio4', 'bio7', 'bio15'
+        }
+
+    def setup(self):
+        for file in os.listdir(self.climate_dir):
+            if file.endswith(".tif"):
+                var_name = file.split("_")[1]
+                path = os.path.join(self.climate_dir, file)
+                dataset = rasterio.open(path)
+                if dataset.crs.to_string() != "EPSG:4326":
+                    raise ValueError(f"{file} must use EPSG:4326 CRS")
+                self.layers[var_name] = dataset
+
+    def process(self, record):
+        if "uncertainty_geom_wkt" not in record:
+            return
+
+        try:
+            polygon = wkt.loads(record["uncertainty_geom_wkt"])
+            geojson_geom = [json.loads(json.dumps(polygon.__geo_interface__))]
+        except Exception:
+            return
+
+        output = {
+            "accession": record.get("accession"),
+            "tax_id": record.get("tax_id"),
+            "species": record.get("species"),
+            "decimalLatitude": record.get("decimalLatitude"),
+            "decimalLongitude": record.get("decimalLongitude")
+        }
+
+        for var, dataset in self.layers.items():
+            try:
+                clipped, _ = mask(dataset, geojson_geom, crop=True, filled=True)
+                arr = clipped[0]
+
+                # Log variable and clipped array shape
+                # print(f"[DEBUG] Species: {record.get('species')}, var: {var}")
+                # print(f"[DEBUG]   coordinate lat: {record.get('decimalLatitude')} long: {record.get('decimalLongitude')}")
+                # print(f"[DEBUG]   Polygon bounds: {polygon.bounds}")
+                # print(f"[DEBUG]   Raster bounds: {dataset.bounds}")
+                # print(f"[DEBUG]   Clipped shape: {clipped.shape}")
+                # print(f"[DEBUG]   Raw data sample (5): {clipped[0].flatten()[:5]}")
+
+                # Remove declared nodata
+                if dataset.nodata is not None:
+                    arr = arr[arr != dataset.nodata]
+
+                # Remove common sentinel values manually
+                arr = arr[~np.isin(arr, [65535, 0, -32768])]
+                arr = arr[~np.isnan(arr)]
+
+                if arr.size > 0:
+                    mean_val = np.mean(arr)
+
+                    if var in self.temp_vars:
+                        output[var] = round(mean_val * 0.1 - 273.15, 2)
+                    elif var in self.precip_vars:
+                        output[var] = round(mean_val * 0.1)
+                    elif var in self.raw_vars:
+                        output[var] = round(float(mean_val), 2)
+                    else:
+                        output[var] = round(float(mean_val), 2)
+
+                else:
+                    output[var] = None
+
+            except Exception:
+                output[var] = None
+
+        yield output
+
+
+class ClimateSummaryFn(DoFn):
+    def process(self, element):
+        accession, records = element
+        values = defaultdict(list)
+        species = str()
+
+        for r in records:
+            species = r["species"]
+            for k, v in r.items():
+                if k.startswith("bio") and isinstance(v, (int, float)):
+                    values[k].append(v)
+
+        summary = {"accession": accession, "species": species}
+
+        for var, vals in values.items():
+            arr = np.array(vals)
+            summary.update({
+                f"{var}_mean": round(np.mean(arr), 2),
+                f"{var}_sd": round(np.std(arr), 2),
+                f"{var}_median": round(np.median(arr), 2),
+                f"{var}_p5": round(np.percentile(arr, 5), 2),
+                f"{var}_p95": round(np.percentile(arr, 95), 2),
+                f"{var}_min": round(np.min(arr), 2),
+                f"{var}_max": round(np.max(arr), 2),
+            })
+
+        cleaned = {k: (v.item() if isinstance(v, (np.generic,)) else v) for k, v in summary.items()}
+
+        yield json.dumps(cleaned)
