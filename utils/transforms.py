@@ -1,3 +1,4 @@
+import geopandas as gpd
 import json
 import os
 import numpy as np
@@ -280,9 +281,9 @@ class GenerateUncertaintyAreaFn(DoFn):
 
 
 class AnnotateWithCHELSAFn(DoFn):
-    def __init__(self, climate_dir):
+    def __init__(self, climate_dir, output_key="clim_dataset"):
         self.climate_dir = climate_dir
-        self.layers = {}
+        self.output_key = output_key
 
         self.temp_vars = {
             'bio1', 'bio5', 'bio6', 'bio8', 'bio9', 'bio10', 'bio11'
@@ -295,6 +296,7 @@ class AnnotateWithCHELSAFn(DoFn):
         }
 
     def setup(self):
+        self.layers = {}
         for file in os.listdir(self.climate_dir):
             if file.endswith(".tif"):
                 var_name = file.split("_")[1]
@@ -314,32 +316,16 @@ class AnnotateWithCHELSAFn(DoFn):
         except Exception:
             return
 
-        output = {
-            "accession": record.get("accession"),
-            "tax_id": record.get("tax_id"),
-            "species": record.get("species"),
-            "decimalLatitude": record.get("decimalLatitude"),
-            "decimalLongitude": record.get("decimalLongitude")
-        }
+        climate_values = {}
 
         for var, dataset in self.layers.items():
             try:
                 clipped, _ = mask(dataset, geojson_geom, crop=True, filled=True)
                 arr = clipped[0]
 
-                # Log variable and clipped array shape
-                # print(f"[DEBUG] Species: {record.get('species')}, var: {var}")
-                # print(f"[DEBUG]   coordinate lat: {record.get('decimalLatitude')} long: {record.get('decimalLongitude')}")
-                # print(f"[DEBUG]   Polygon bounds: {polygon.bounds}")
-                # print(f"[DEBUG]   Raster bounds: {dataset.bounds}")
-                # print(f"[DEBUG]   Clipped shape: {clipped.shape}")
-                # print(f"[DEBUG]   Raw data sample (5): {clipped[0].flatten()[:5]}")
-
-                # Remove declared nodata
                 if dataset.nodata is not None:
                     arr = arr[arr != dataset.nodata]
 
-                # Remove common sentinel values manually
                 arr = arr[~np.isin(arr, [65535, 0, -32768])]
                 arr = arr[~np.isnan(arr)]
 
@@ -347,49 +333,70 @@ class AnnotateWithCHELSAFn(DoFn):
                     mean_val = np.mean(arr)
 
                     if var in self.temp_vars:
-                        output[var] = round(mean_val * 0.1 - 273.15, 2)
+                        climate_values[var] = round(mean_val * 0.1 - 273.15, 2)
                     elif var in self.precip_vars:
-                        output[var] = round(mean_val * 0.1)
+                        climate_values[var] = round(mean_val * 0.1)
                     elif var in self.raw_vars:
-                        output[var] = round(float(mean_val), 2)
+                        climate_values[var] = round(float(mean_val), 2)
                     else:
-                        output[var] = round(float(mean_val), 2)
-
+                        climate_values[var] = round(float(mean_val), 2)
                 else:
-                    output[var] = None
+                    climate_values[var] = None
 
             except Exception:
-                output[var] = None
+                climate_values[var] = None
+
+        output = {
+            "accession": record.get("accession"),
+            "tax_id": record.get("tax_id"),
+            "species": record.get("species"),
+            "decimalLatitude": record.get("decimalLatitude"),
+            "decimalLongitude": record.get("decimalLongitude"),
+            self.output_key: climate_values,
+            "occurrenceID": record.get("occurrenceID")
+        }
 
         yield output
 
 
 class ClimateSummaryFn(DoFn):
+    def __init__(self, input_key="clim_CHELSA"):
+        self.input_key = input_key
+
     def process(self, element):
-        accession, records = element
+        species, records = element
         values = defaultdict(list)
-        species = str()
 
         for r in records:
-            species = r["species"]
-            for k, v in r.items():
-                if k.startswith("bio") and isinstance(v, (int, float)):
-                    values[k].append(v)
+            clim = r.get(self.input_key, {})
+            for var, val in clim.items():
+                if isinstance(val, (int, float)):
+                    values[var].append(val)
 
-        summary = {"accession": accession, "species": species}
+        summary = {"species": species, self.input_key: {}}
 
         for var, vals in values.items():
             arr = np.array(vals)
-            summary.update({
-                f"{var}_mean": round(np.mean(arr), 2),
-                f"{var}_sd": round(np.std(arr), 2),
-                f"{var}_median": round(np.median(arr), 2),
-                f"{var}_p5": round(np.percentile(arr, 5), 2),
-                f"{var}_p95": round(np.percentile(arr, 95), 2),
-                f"{var}_min": round(np.min(arr), 2),
-                f"{var}_max": round(np.max(arr), 2),
-            })
+            summary[self.input_key][var] = {
+                "mean": round(np.mean(arr), 2),
+                "sd": round(np.std(arr), 2),
+                "median": round(np.median(arr), 2),
+                "p5": round(np.percentile(arr, 5), 2),
+                "p95": round(np.percentile(arr, 95), 2),
+                "min": round(np.min(arr), 2),
+                "max": round(np.max(arr), 2)
+            }
 
-        cleaned = {k: (v.item() if isinstance(v, (np.generic,)) else v) for k, v in summary.items()}
+        def convert_numpy(obj):
+            if isinstance(obj, dict):
+                return {k: convert_numpy(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_numpy(v) for v in obj]
+            elif isinstance(obj, (np.generic,)):
+                return obj.item()
+            else:
+                return obj
 
-        yield json.dumps(cleaned)
+        output = json.dumps(convert_numpy(summary))
+
+        yield output
