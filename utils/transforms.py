@@ -400,3 +400,104 @@ class ClimateSummaryFn(DoFn):
         output = json.dumps(convert_numpy(summary))
 
         yield output
+
+
+class AnnotateWithBiogeoFn(DoFn):
+    def __init__(self, vector_path, keep_fields, dict_key="biogeo_area"):
+        """
+        Args:
+            vector_path (str): Path to vector data file (e.g., Ecoregions shapefile or .zip)
+            keep_fields (dict): Mapping of output keys to field names in the vector layer.
+                                Example: {"realm": "REALM", "biome": "BIOME_NAME"}
+            dict_key (str): Output dictionary name in the result record.
+        """
+        self.vector_path = vector_path
+        self.keep_fields = keep_fields
+        self.dict_key = dict_key
+
+    def setup(self):
+        self.gdf = gpd.read_file(self.vector_path)
+
+        if self.gdf.crs.to_string() != "EPSG:4326":
+            raise ValueError(f"Vector file must use EPSG:4326 CRS, got {self.gdf.crs}")
+
+        fields = list(self.keep_fields.values()) + ["geometry"]
+        self.gdf = self.gdf[fields]
+        self.sindex = self.gdf.sindex
+
+    def process(self, record):
+        if "uncertainty_geom_wkt" not in record:
+            return
+
+        try:
+            geom = wkt.loads(record["uncertainty_geom_wkt"])
+        except Exception:
+            return
+
+        candidates = list(self.sindex.query(geom, predicate="intersects"))
+        matches = self.gdf.iloc[candidates]
+        matches = matches[matches.intersects(geom)]
+
+        if matches.empty:
+            return
+
+        output = {
+            "accession": record.get("accession"),
+            "tax_id": record.get("tax_id"),
+            "species": record.get("species"),
+            "decimalLatitude": record.get("decimalLatitude"),
+            "decimalLongitude": record.get("decimalLongitude"),
+            self.dict_key: {},
+            "occurrenceID": record.get("occurrenceID")
+        }
+
+        for out_key, vector_col in self.keep_fields.items():
+            unique_vals = sorted(set(matches[vector_col].dropna().astype(str)))
+            output[self.dict_key][out_key] = unique_vals
+
+        yield output
+
+
+class BiogeoListFn(DoFn):
+    def __init__(self, dict_key="biogeo_area"):
+        self.dict_key = dict_key
+
+    def process(self, element):
+        species, records = element
+        merged = defaultdict(set)
+
+        for r in records:
+            geo_dict = r.get(self.dict_key, {})
+            for field, values in geo_dict.items():
+                if isinstance(values, list):
+                    merged[field].update(values)
+
+        summary = {
+            "species": species,
+            self.dict_key: {
+                field: sorted(list(vals)) for field, vals in merged.items()
+            }
+        }
+
+        yield json.dumps(summary)
+
+
+class BiogeoRegionCountFn(DoFn):
+    def __init__(self, dict_key="biogeo_Ecoregion"):
+        self.dict_key = dict_key
+
+    def process(self, element):
+        species, records = element
+        region_sets = defaultdict(set)
+
+        for r in records:
+            region_dict = r.get(self.dict_key, {})
+            for field, values in region_dict.items():
+                if isinstance(values, list):
+                    region_sets[field].update(values)
+
+        summary = {"species": species}
+        for field, values in region_sets.items():
+            summary[f"num_{field}s"] = len(values)  # e.g., num_realms, num_biomes
+
+        yield json.dumps(summary)
