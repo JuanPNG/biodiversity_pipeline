@@ -35,3 +35,17 @@ def write_species_file(kv, output_dir):
     with FileSystems.create(path) as f:
         for line in records:
             f.write((line + '\n').encode('utf-8'))
+
+
+def merge_annotations(inputs):
+    """
+    Merges climate and biogeo annorations keyed by occurrenceID into a single pcollection.
+    :param inputs: mapped pcollection using occurrenceID
+    :return:
+    """
+    merged = {}
+    for src in ["climate", "biogeo"]:
+        recs = inputs.get(src, [])
+        if recs:
+            merged.update(recs[0])
+    return merged
