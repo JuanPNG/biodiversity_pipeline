@@ -403,17 +403,17 @@ class ClimateSummaryFn(DoFn):
 
 
 class AnnotateWithBiogeoFn(DoFn):
-    def __init__(self, vector_path, keep_fields, dict_key="biogeo_area"):
+    def __init__(self, vector_path, keep_fields, output_key="biogeo_area"):
         """
         Args:
             vector_path (str): Path to vector data file (e.g., Ecoregions shapefile or .zip)
             keep_fields (dict): Mapping of output keys to field names in the vector layer.
                                 Example: {"realm": "REALM", "biome": "BIOME_NAME"}
-            dict_key (str): Output dictionary name in the result record.
+            output_key (str): Output dictionary name in the result record.
         """
         self.vector_path = vector_path
         self.keep_fields = keep_fields
-        self.dict_key = dict_key
+        self.output_key = output_key
 
     def setup(self):
         self.gdf = gpd.read_file(self.vector_path)
@@ -447,27 +447,27 @@ class AnnotateWithBiogeoFn(DoFn):
             "species": record.get("species"),
             "decimalLatitude": record.get("decimalLatitude"),
             "decimalLongitude": record.get("decimalLongitude"),
-            self.dict_key: {},
+            self.output_key: {},
             "occurrenceID": record.get("occurrenceID")
         }
 
         for out_key, vector_col in self.keep_fields.items():
             unique_vals = sorted(set(matches[vector_col].dropna().astype(str)))
-            output[self.dict_key][out_key] = unique_vals
+            output[self.output_key][out_key] = unique_vals
 
         yield output
 
 
 class BiogeoSummaryNestedFn(DoFn):
-    def __init__(self, dict_key="biogeo_Ecoregion"):
-        self.dict_key = dict_key
+    def __init__(self, output_key="biogeo_Ecoregion"):
+        self.output_key = output_key
 
     def process(self, element):
         species, records = element
         region_sets = defaultdict(set)
 
         for r in records:
-            region_data = r.get(self.dict_key, {})
+            region_data = r.get(self.output_key, {})
             for field, values in region_data.items():
                 if isinstance(values, list):
                     region_sets[field].update(values)
@@ -480,6 +480,6 @@ class BiogeoSummaryNestedFn(DoFn):
             for field, vals in region_sets.items()
         }
 
-        summary = {"species": species, self.dict_key: nested}
+        summary = {"species": species, self.output_key: nested}
 
         yield json.dumps(summary)
