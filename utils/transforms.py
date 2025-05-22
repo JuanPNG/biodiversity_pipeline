@@ -458,31 +458,7 @@ class AnnotateWithBiogeoFn(DoFn):
         yield output
 
 
-class BiogeoListFn(DoFn):
-    def __init__(self, dict_key="biogeo_area"):
-        self.dict_key = dict_key
-
-    def process(self, element):
-        species, records = element
-        merged = defaultdict(set)
-
-        for r in records:
-            geo_dict = r.get(self.dict_key, {})
-            for field, values in geo_dict.items():
-                if isinstance(values, list):
-                    merged[field].update(values)
-
-        summary = {
-            "species": species,
-            self.dict_key: {
-                field: sorted(list(vals)) for field, vals in merged.items()
-            }
-        }
-
-        yield json.dumps(summary)
-
-
-class BiogeoRegionCountFn(DoFn):
+class BiogeoSummaryNestedFn(DoFn):
     def __init__(self, dict_key="biogeo_Ecoregion"):
         self.dict_key = dict_key
 
@@ -491,13 +467,19 @@ class BiogeoRegionCountFn(DoFn):
         region_sets = defaultdict(set)
 
         for r in records:
-            region_dict = r.get(self.dict_key, {})
-            for field, values in region_dict.items():
+            region_data = r.get(self.dict_key, {})
+            for field, values in region_data.items():
                 if isinstance(values, list):
                     region_sets[field].update(values)
 
-        summary = {"species": species}
-        for field, values in region_sets.items():
-            summary[f"num_{field}s"] = len(values)  # e.g., num_realms, num_biomes
+        nested = {
+            field: {
+                "count": len(vals),
+                "values": sorted(list(vals))
+            }
+            for field, vals in region_sets.items()
+        }
+
+        summary = {"species": species, self.dict_key: nested}
 
         yield json.dumps(summary)
