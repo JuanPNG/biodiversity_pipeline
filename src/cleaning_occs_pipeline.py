@@ -37,8 +37,8 @@ def cleaning_occs_pipeline(args, beam_args):
                 | 'MatchFiles' >> fileio.MatchFiles(args.input_glob)
                 | 'ReadFiles' >> fileio.ReadMatches()
                 | 'ExtractLinesWithFilename' >> beam.FlatMap(
-            lambda file: [(file.metadata.path, line) for line in file.read_utf8().splitlines()]
-        )
+                     lambda file: [(file.metadata.path, line) for line in file.read_utf8().splitlines()]
+                )
         )
 
         # Clean occurrence records
@@ -48,14 +48,19 @@ def cleaning_occs_pipeline(args, beam_args):
                 | 'FilterZeroCoords' >> beam.Filter(lambda kv: cl.filter_zero_coords(kv[1]) is not None)
                 | 'FilterInvalidCoords' >> beam.Filter(lambda kv: cl.filter_invalid_coords(kv[1]) is not None)
                 | 'FilterHighUncertainty' >> beam.Filter(
-            lambda kv: cl.filter_high_uncertainty(kv[1], args.max_uncertainty) is not None)
-                | 'FilterSea' >> beam.Filter(lambda kv, land: cl.filter_sea(kv[1], land) is not None,
-                                             land=beam.pvalue.AsSingleton(land_si))
+                    lambda kv: cl.filter_high_uncertainty(kv[1], args.max_uncertainty) is not None
+                )
+                | 'FilterSea' >> beam.Filter(
+                    lambda kv, land: cl.filter_sea(kv[1], land) is not None,
+                    land=beam.pvalue.AsSingleton(land_si)
+                )
                 | 'FilterCentroid' >> beam.Filter(
-            lambda kv, cents: cl.filter_centroid(kv[1], cents, args.max_centroid_dist) is not None,
-            cents=beam.pvalue.AsSingleton(centroids_si))
+                    lambda kv, cents: cl.filter_centroid(kv[1], cents, args.max_centroid_dist) is not None,
+                    cents=beam.pvalue.AsSingleton(centroids_si)
+                )
                 | 'KeyBySpeciesAndCoords' >> beam.Map(
-            lambda kv: ((kv[0], kv[1]['decimalLatitude'], kv[1]['decimalLongitude']), kv[1]))
+                    lambda kv: ((kv[0], kv[1]['decimalLatitude'], kv[1]['decimalLongitude']), kv[1])
+                )
                 | 'GroupDuplicates' >> beam.GroupByKey()
                 | 'Deduplicate' >> beam.Map(lambda kv: (kv[0][0], cl.select_best_record(list(kv[1]))))
         )
@@ -64,6 +69,7 @@ def cleaning_occs_pipeline(args, beam_args):
         _ = (
                 cleaned
                 | 'ToJSON' >> beam.Map(lambda kv: (kv[0], json.dumps(kv[1])))
+                | 'ReshuffleBalanceLoad' >> beam.Reshuffle()
                 | 'GroupBySpecies' >> beam.GroupByKey()
                 | 'WritePerSpecies' >> beam.ParDo(lambda kv: write_species_file(kv, args.output_dir))
         )
