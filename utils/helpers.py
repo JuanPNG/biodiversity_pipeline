@@ -1,6 +1,7 @@
 import os
 import re
 from apache_beam.io.filesystems import FileSystems
+from apache_beam.io.gcp.internal.clients import bigquery
 
 def sanitize_species_name(species: str) -> str:
     """
@@ -49,3 +50,17 @@ def merge_annotations(inputs):
         if recs:
             merged.update(recs[0])
     return merged
+
+
+def convert_dict_to_table_schema(schema_dict_list):
+    """
+    Converts a list of schema dicts (from JSON) into a Beam-compatible TableSchema.
+    """
+    table_schema = bigquery.TableSchema()
+    for field in schema_dict_list:
+        table_field = bigquery.TableFieldSchema()
+        table_field.name = field["name"]
+        table_field.type = field["type"]
+        table_field.mode = field.get("mode", "NULLABLE")
+        table_schema.fields.append(table_field)
+    return table_schema
