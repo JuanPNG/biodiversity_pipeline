@@ -2,13 +2,21 @@ import argparse
 import json
 import apache_beam as beam
 from apache_beam.options.pipeline_options import PipelineOptions
-from apache_beam.io import fileio
+from apache_beam.io import fileio, WriteToBigQuery, BigQueryDisposition
+from apache_beam.options.pipeline_options import GoogleCloudOptions
 from utils import cleaning_occs as cl
-from utils.helpers import extract_species_name, write_species_file
+from utils.helpers import extract_species_name, write_species_file, convert_dict_to_table_schema
 
 
-def run_pipeline(args, beam_args):
+def cleaning_occs_pipeline(args, beam_args):
     options = PipelineOptions(beam_args)
+    options.view_as(GoogleCloudOptions).project = args.project
+
+    bq_schema = None
+    if args.bq_schema:
+        with open(args.bq_schema) as f:
+            schema_dict = json.load(f)
+            bq_schema = convert_dict_to_table_schema(schema_dict)
 
     with beam.Pipeline(options=options) as p:
         # Side inputs for coordinate validation: land and country centroids
@@ -60,6 +68,34 @@ def run_pipeline(args, beam_args):
                 | 'WritePerSpecies' >> beam.ParDo(lambda kv: write_species_file(kv, args.output_dir))
         )
 
+        # Write consolidated output
+        if args.output_consolidated:
+            _ = (
+                    cleaned
+                    | 'ExtractCleanedDict' >> beam.Map(lambda kv: kv[1])
+                    | 'WriteConsolidatedJSON' >> beam.io.WriteToText(
+                        file_path_prefix=args.output_consolidated,
+                        file_name_suffix=".jsonl",
+                        num_shards=1,
+                        shard_name_template=""
+                    )
+            )
+
+        # Write to BigQuery
+        if args.bq_table and args.temp_location:
+            _ = (
+                    cleaned
+                    | 'PrepareBQRows' >> beam.Map(lambda kv: kv[1])
+                    | 'WriteToBigQuery' >> WriteToBigQuery(
+                        table=args.bq_table,
+                        schema=bq_schema,
+                        method='FILE_LOADS',
+                        custom_gcs_temp_location=args.temp_location,
+                        write_disposition=BigQueryDisposition.WRITE_TRUNCATE,
+                        create_disposition=BigQueryDisposition.CREATE_IF_NEEDED
+                    )
+            )
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Batch clean GBIF occurrence files')
@@ -71,6 +107,13 @@ if __name__ == '__main__':
     parser.add_argument('--centroid_shapefile', required=True, help='Path to admin-0 label points shapefile')
     parser.add_argument('--max_uncertainty', type=float, default=1000, help='Max coordinate uncertainty in meters')
     parser.add_argument('--max_centroid_dist', type=float, default=5000, help='Max distance to centroid in meters')
+    # If consolidated file needed for inspection
+    parser.add_argument('--output_consolidated', required=False, help='Optional consolidated output path prefix')
+    # BigQuery parameters
+    parser.add_argument('--bq_table', required=False, help='BigQuery table in the format project:dataset.table')
+    parser.add_argument('--bq_schema', required=False, help='Path to BigQuery schema JSON (optional if table exists)')
+    parser.add_argument('--temp_location', required=False, help='GCS temp path for BigQuery load jobs')
+    parser.add_argument('--project', required=False, help='GCP Project ID')
 
     args, beam_args = parser.parse_known_args()
-    run_pipeline(args, beam_args)
+    cleaning_occs_pipeline(args, beam_args)
