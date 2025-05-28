@@ -1,5 +1,7 @@
 import argparse
 import json
+import random
+
 import apache_beam as beam
 from apache_beam.options.pipeline_options import PipelineOptions
 from apache_beam.io import fileio, WriteToBigQuery, BigQueryDisposition
@@ -69,6 +71,8 @@ def cleaning_occs_pipeline(args, beam_args):
         _ = (
                 cleaned
                 | 'ToJSON' >> beam.Map(lambda kv: (kv[0], json.dumps(kv[1])))
+                | 'AddShardedKey' >> beam.Map(lambda kv: ((kv[0], random.randint(0, args.shards - 1)), kv[1]))
+                | 'GroupByShardedKey' >> beam.GroupByKey()
                 | 'ReshuffleBalanceLoad' >> beam.Reshuffle()
                 | 'GroupBySpecies' >> beam.GroupByKey()
                 | 'WritePerSpecies' >> beam.ParDo(lambda kv: write_species_file(kv, args.output_dir))
@@ -120,6 +124,7 @@ if __name__ == '__main__':
     parser.add_argument('--bq_schema', required=False, help='Path to BigQuery schema JSON (optional if table exists)')
     parser.add_argument('--temp_location', required=False, help='GCS temp path for BigQuery load jobs')
     parser.add_argument('--project', required=False, help='GCP Project ID')
+    parser.add_argument('--shards', type=int, default=5, help='Sharding factor to avoid skew in GroupByKey')
 
     args, beam_args = parser.parse_known_args()
     cleaning_occs_pipeline(args, beam_args)
