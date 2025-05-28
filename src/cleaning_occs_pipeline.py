@@ -82,6 +82,7 @@ def cleaning_occs_pipeline(args, beam_args):
         if args.output_consolidated:
             _ = (
                     cleaned
+                    | 'ToJSON2' >> beam.Map(lambda kv: (kv[0], json.dumps(kv[1])))
                     | 'ExtractCleanedDict' >> beam.Map(lambda kv: kv[1])
                     | 'WriteConsolidatedJSON' >> beam.io.WriteToText(
                         file_path_prefix=args.output_consolidated,
