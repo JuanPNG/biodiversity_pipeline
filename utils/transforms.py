@@ -364,7 +364,8 @@ class ClimateSummaryFn(DoFn):
         self.input_key = input_key
 
     def process(self, element):
-        species, records = element
+        # species, records = element
+        (accession, species, tax_id), records = element
         values = defaultdict(list)
 
         for r in records:
@@ -373,7 +374,14 @@ class ClimateSummaryFn(DoFn):
                 if isinstance(val, (int, float)):
                     values[var].append(val)
 
-        summary = {"species": species, self.input_key: {}}
+        # summary = {"species": species, self.input_key: {}}
+
+        summary = {
+            "accession": accession,
+            "species": species,
+            "tax_id": tax_id,
+            "clim_CHELSA": {}
+        }
 
         for var, vals in values.items():
             arr = np.array(vals)
@@ -463,7 +471,8 @@ class BiogeoSummaryNestedFn(DoFn):
         self.output_key = output_key
 
     def process(self, element):
-        species, records = element
+        # species, records = element
+        (accession, species, tax_id), records = element
         region_sets = defaultdict(set)
 
         for r in records:
@@ -480,6 +489,13 @@ class BiogeoSummaryNestedFn(DoFn):
             for field, vals in region_sets.items()
         }
 
-        summary = {"species": species, self.output_key: nested}
+        # summary = {"species": species, self.output_key: nested}
+
+        summary = {
+            "accession": accession,
+            "species": species,
+            "tax_id": tax_id,
+            "biogeo_Ecoregion": nested
+        }
 
         yield json.dumps(summary)
