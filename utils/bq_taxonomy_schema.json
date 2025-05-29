@@ -13,9 +13,6 @@
   {"name": "gbif_scientificName", "type": "STRING", "mode": "NULLABLE"},
   {"name": "gbif_matchType", "type": "STRING", "mode": "NULLABLE"},
   {"name": "gbif_confidence", "type": "INTEGER", "mode": "NULLABLE"},
-  {"name": "gbif_canonicalName", "type": "STRING", "mode": "NULLABLE"},
   {"name": "gbif_rank", "type": "STRING", "mode": "NULLABLE"},
-  {"name": "gbif_status", "type": "STRING", "mode": "NULLABLE"},
-  {"name": "gbif_acceptedUsageKey", "type": "INTEGER", "mode": "NULLABLE"},
-  {"name": "gbif_accepted_species", "type": "STRING", "mode": "NULLABLE"}
+  {"name": "gbif_status", "type": "STRING", "mode": "NULLABLE"}
 ]
