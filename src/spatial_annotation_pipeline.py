@@ -57,7 +57,7 @@ def spatial_annotation_pipeline(args, beam_args):
             | "MergeAnnotations" >> beam.Map(lambda kv: merge_annotations(kv[1]))
         )
 
-        # Write spatial annotations file
+        # Write spatial annotations file: annotations per geographic coordinate
         _ = (
             joined
             | "ToJSON" >> beam.Map(json.dumps)
@@ -68,28 +68,35 @@ def spatial_annotation_pipeline(args, beam_args):
             )
         )
 
-        # Prepare for summarising per species.
-        # TODO include accession and tax_id as well.
-        species_kv = joined | "KeyBySpecies" >> beam.Map(lambda r: (r["species"], r))
+        # Prepare annotations summary per accession
+        accession_kv = joined | "KeyByAccession" >> beam.Map(lambda r: ((r["accession"]), r))
 
-        # Write summaries
-        _ = (
-            species_kv
-            | "GroupClimate" >> beam.GroupByKey()
-            | "SummarizeClimate" >> beam.ParDo(ClimateSummaryFn())
-            | "WriteClimateSummary" >> beam.io.WriteToText(
-                file_path_prefix=args.climate_summary_output,
-                file_name_suffix=".jsonl",
-                num_shards=1
-            )
+        climate_summary = (
+                accession_kv
+                | "GroupClimate" >> beam.GroupByKey()
+                | "SummarizeClimate" >> beam.ParDo(ClimateSummaryFn())
+        )
+
+        biogeo_summary = (
+                accession_kv
+                | "GroupBiogeo" >> beam.GroupByKey()
+                | "SummarizeBiogeo" >> beam.ParDo(BiogeoSummaryNestedFn())
+        )
+
+        # Integrating climate and biogeographic annotations per accession
+        joined_summ = (
+            {"climate": climate_summary, "biogeo": biogeo_summary}
+            | "JoinSummariesByAccession" >> beam.CoGroupByKey()
+            | "MergeSummaries" >> beam.Map(lambda kv: {  # Unpacking annotation values
+                **kv[1].get("climate", [{}])[0],
+                **kv[1].get("biogeo", [{}])[0]
+            })
         )
 
         _ = (
-            species_kv
-            | "GroupBiogeo" >> beam.GroupByKey()
-            | "SummarizeBiogeo" >> beam.ParDo(BiogeoSummaryNestedFn())
-            | "WriteBiogeoSummary" >> beam.io.WriteToText(
-                file_path_prefix=args.biogeo_summary_output,
+            joined_summ
+            | "WriteJoinedSumm" >> beam.io.WriteToText(
+                file_path_prefix=args.summary_output,
                 file_name_suffix=".jsonl",
                 num_shards=1
             )
@@ -103,8 +110,7 @@ if __name__ == "__main__":
     parser.add_argument("--climate_dir", required=True, help="Path to CHELSA dataset")
     parser.add_argument("--biogeo_vector", required=True, help="Path to vector dataset (e.g., ecoregions)")
     parser.add_argument("--annotated_output", required=True, help="Output path for full annotated records")
-    parser.add_argument("--climate_summary_output", required=True, help="Output for climate summary")
-    parser.add_argument("--biogeo_summary_output", required=True, help="Output for biogeographic summary")
+    parser.add_argument("--summary_output", required=True, help="Output path for the joined spatial summary")
 
     args, beam_args = parser.parse_known_args()
     spatial_annotation_pipeline(args, beam_args)
