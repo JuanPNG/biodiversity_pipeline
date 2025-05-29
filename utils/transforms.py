@@ -364,9 +364,13 @@ class ClimateSummaryFn(DoFn):
         self.input_key = input_key
 
     def process(self, element):
-        # species, records = element
-        (accession, species, tax_id), records = element
+        accession, records = element
         values = defaultdict(list)
+
+        # Extracting metadata to include in summary
+        metadata = records[0]
+        species = metadata.get("species")
+        tax_id = metadata.get("tax_id")
 
         for r in records:
             clim = r.get(self.input_key, {})
@@ -374,13 +378,11 @@ class ClimateSummaryFn(DoFn):
                 if isinstance(val, (int, float)):
                     values[var].append(val)
 
-        # summary = {"species": species, self.input_key: {}}
-
         summary = {
             "accession": accession,
             "species": species,
             "tax_id": tax_id,
-            "clim_CHELSA": {}
+            self.input_key: {}
         }
 
         for var, vals in values.items():
@@ -395,17 +397,7 @@ class ClimateSummaryFn(DoFn):
                 "max": round(np.max(arr), 2)
             }
 
-        def convert_numpy(obj):
-            if isinstance(obj, dict):
-                return {k: convert_numpy(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [convert_numpy(v) for v in obj]
-            elif isinstance(obj, (np.generic,)):
-                return obj.item()
-            else:
-                return obj
-
-        output = json.dumps(convert_numpy(summary))
+        output = (accession, summary)
 
         yield output
 
@@ -472,8 +464,13 @@ class BiogeoSummaryNestedFn(DoFn):
 
     def process(self, element):
         # species, records = element
-        (accession, species, tax_id), records = element
+        accession, records = element
         region_sets = defaultdict(set)
+
+        # Extracting metadata to include in summary
+        metadata = records[0]
+        species = metadata.get("species")
+        tax_id = metadata.get("tax_id")
 
         for r in records:
             region_data = r.get(self.output_key, {})
@@ -489,8 +486,6 @@ class BiogeoSummaryNestedFn(DoFn):
             for field, vals in region_sets.items()
         }
 
-        # summary = {"species": species, self.output_key: nested}
-
         summary = {
             "accession": accession,
             "species": species,
@@ -498,4 +493,6 @@ class BiogeoSummaryNestedFn(DoFn):
             "biogeo_Ecoregion": nested
         }
 
-        yield json.dumps(summary)
+        output = (accession, summary)
+
+        yield output
