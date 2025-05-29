@@ -397,7 +397,17 @@ class ClimateSummaryFn(DoFn):
                 "max": round(np.max(arr), 2)
             }
 
-        output = (accession, summary)
+        def convert_numpy(obj):
+            if isinstance(obj, dict):
+                return {k: convert_numpy(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_numpy(v) for v in obj]
+            elif isinstance(obj, (np.generic,)):
+                return obj.item()
+            else:
+                return obj
+
+        output = (accession, convert_numpy(summary))
 
         yield output
 
