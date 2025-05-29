@@ -1,8 +1,10 @@
 import argparse
 import json
 import apache_beam as beam
+from apache_beam.io.filesystems import FileSystems
 from apache_beam.options.pipeline_options import PipelineOptions
 
+from utils.helpers import convert_dict_to_table_schema
 from utils.transforms import FetchESFn, ENATaxonomyFn, ValidateNamesFn
 
 
@@ -15,14 +17,16 @@ def taxonomy_pipeline(args, beam_args):
         es_records = (
             p
             | "Start" >> beam.Create([None])
-            | "FetchFromES" >> beam.ParDo(FetchESFn(
-                host=args.host,
-                user=args.user,
-                password=args.password,
-                index=args.index,
-                page_size=args.size,
-                max_pages=args.pages
-            ))
+            | "FetchFromES" >> beam.ParDo(
+                FetchESFn(
+                    host=args.host,
+                    user=args.user,
+                    password=args.password,
+                    index=args.index,
+                    page_size=args.size,
+                    max_pages=args.pages
+                )
+            )
         )
 
         # Enrich from ENA API (with retry + optional delay)
@@ -69,19 +73,24 @@ def taxonomy_pipeline(args, beam_args):
             )
         )
 
-        # (Optional) Export to BigQuery (TO DO)
-        # if args.bq_table:
-        #     (
-        #             validated
-        #             | "WriteToBigQuery" >> beam.io.WriteToBigQuery(
-        #                 table=args.bq_table,
-        #                 schema="utils/bq_taxonomy_schema.json",
-        #                 method="FILE_LOADS",
-        #                 custom_gcs_temp_location=args.temp_location,
-        #                 write_disposition=beam.io.BigQueryDisposition.WRITE_TRUNCATE,
-        #                 create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED
-        #             )
-        #     )
+        # Export to BigQuery
+        if args.bq_table and args.bq_schema and args.temp_location:
+            with FileSystems.open(args.bq_schema) as f:
+                schema_dict = json.load(f)
+                table_schema = convert_dict_to_table_schema(schema_dict)
+
+            (
+                    validated
+                    | "PrepareBQRecords" >> beam.Map(lambda x: x)  # Already dicts
+                    | "WriteToBigQuery" >> beam.io.WriteToBigQuery(
+                        table=args.bq_table,
+                        schema=table_schema,
+                        method="FILE_LOADS",
+                        custom_gcs_temp_location=args.temp_location,
+                        write_disposition=beam.io.BigQueryDisposition.WRITE_TRUNCATE,
+                        create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED
+                    )
+            )
 
 
 if __name__ == "__main__":
@@ -98,12 +107,13 @@ if __name__ == "__main__":
     # ENA throttling
     parser.add_argument("--sleep", type=float, default=0.25, help="Delay (in seconds) between ENA requests")
 
-    # Output file (TO DO: change to GS)
+    # Output file
     parser.add_argument("--output", required=True, help="Output path prefix (no extension)")
 
-    # BigQuery options (TO DO)
-    # parser.add_argument("--bq_table", help="BigQuery table (project.dataset.table)")
-    # parser.add_argument("--temp_location", help="GCS temp path for BQ file loads", required=False)
+    # BigQuery options
+    parser.add_argument("--bq_table", help="BigQuery table (project.dataset.table)")
+    parser.add_argument("--temp_location", help="GCS temp path for BQ file loads", required=False)
+    parser.add_argument("--bq_schema", help="Path to BQ schema JSON")
 
     args, beam_args = parser.parse_known_args()
     taxonomy_pipeline(args, beam_args)
