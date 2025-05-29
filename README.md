@@ -7,35 +7,49 @@ This project defines a modular data pipeline built with Apache Beam. The workflo
 ## 📁 Project Structure
 
 ```bash
-/src                    # Main pipeline scripts
-  ├── taxonomy_pipeline.py
-  ├── occurrences_pipeline.py
-  ├── cleaning_occs_pipeline.py
-  └── spatial_annotations_pipeline.py
+/src  
+  ├── taxonomy_pipeline.py             # Retrieves and validates taxonomy of species with complete annotations
+  ├── occurrences_pipeline.py          # Download GBIF occurrences using usageKeys
+  ├── cleaning_occs_pipeline.py        # Clean and deduplicate occurrence records
+  └── spatial_annotations_pipeline.py  # Annotated geographic coordinates with climate and biogeography
 
-/utils                  # Supporting classes and helpers
-  ├── transforms.py     # Apache Beam DoFns
-  └── helpers.py
+/utils                                 
+  ├── transforms.py                    # Apache Beam DoFns
+  └── helpers.py                       # Utility functions 
 
-/out                    # Output data by stage
-  ├── occurrences_raw/
-  ├── validated_taxonomy/
-  ├── occurrences_clean/
-  ├── spatial/
-  └── summary/
+/out                                    
+  ├── validated_taxonomy/              # Taxonomy validation output
+  ├── occurrences_raw/                 # Raw GBIF occurrence data
+  ├── occurrences_clean/               # Cleaned occurrences (per species)
+  ├── spatial/                         # Annotated records
+  └── summary/                         # Summaries for cleaned and annotated records
 
-/data                   # Input data and resources
-  ├── climate/          # CHELSA GeoTIFF layers
-  ├── bioregions/       # WWF Ecoregions, etc.
-  └── spatial_processing/ # Land/centroid shapefiles
+/data                                  # Input data and resources
+  ├── climate/                         # CHELSA raster layers
+  ├── bioregions/                      # WWF Ecoregions vector layers
+  └── spatial_processing/              # Additional spatial layers (Land/centroid shapefiles)
 
 requirements.txt
 README.md
 ```
+## Workflow overview
+
+1. **Taxonomy pipeline**: Validates species names and retrieves GBIF usageKeys
+2. **Occurrences pipeline**: Downloads GBIF occurrence records
+3. **Cleaning pipeline**: Filters, deduplicates, and validates occurrences
+4. **Spatial annotation pipeline**:
+
+   * Generates circular buffers around occurrence coordinates
+   * Annotates each record with:
+     * Climate data from CHELSA rasters
+     * Biogeographic regions from WWF ecoregions
+   * Produces:
+     * Annotated species occurrence geographic coordinates
+     * Summary of annotations
 
 ---
 
-## 🚀 Local execution
+## Local execution
 
 Install dependencies
 
@@ -121,7 +135,7 @@ python src/spatial_annotations_pipeline.py \
 
 ---
 
-## ☁️ Cloud Deployment
+### Cloud Deployment
 
 Each pipeline can be deployed to Google Cloud by updating output/input paths to `gs://` and setting the appropriate options.
 
@@ -149,6 +163,25 @@ Other pipelines follow a similar pattern — ensure:
 * You define `--runner`, `--project`, and staging/temp paths
 * Include `--save_main_session` if required
 
+Example with cleaning pipeline
+
+```bash
+python src/cleaning_occs_pipeline.py \
+  --input_glob "out/occurrences_raw/*.jsonl" \
+  --output_dir "out/occurrences_clean" \
+  --land_shapefile "data/spatial_processing/ne_10m_land.zip" \
+  --centroid_shapefile "data/spatial_processing/ne_10m_admin_0_label_points.zip" \
+  --max_uncertainty 1000 \
+  --max_centroid_dist 5000 \
+  --bq_table your-project:your_dataset.gbif_occurrences \
+  --bq_schema utils/bq_gbif_occurrences_schema.json \
+  --temp_location gs://your-bucket/temp \
+  --runner DataflowRunner \
+  --project your-project \
+  --region europe-west1 \
+  --requirements_file requirements.txt \
+  --save_main_session
+```
 
 
 ______
