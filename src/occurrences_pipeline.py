@@ -67,7 +67,7 @@ def occurrences_pipeline(args, beam_args):
         "FAILURES": failures
     }
 
-    with FileSystems.create(args.output_dir + "/summary.jsonl") as f:
+    with FileSystems.create(args.output_dir + "/summary_occ_download.jsonl") as f:
         f.write(json.dumps(summary).encode("utf-8"))
         f.write(b"\n")
 
