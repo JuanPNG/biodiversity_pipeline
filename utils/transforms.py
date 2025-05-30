@@ -17,7 +17,7 @@ from shapely import wkt
 from shapely.geometry import Point
 from shapely.ops import transform
 from rasterio.mask import mask
-from utils.helpers import sanitize_species_name
+from utils.helpers import sanitize_species_name, fetch_spatial_file_to_local
 
 
 class FetchESFn(DoFn):
@@ -296,6 +296,20 @@ class AnnotateWithCHELSAFn(DoFn):
         }
 
     def setup(self):
+        base_dir = self.climate_dir
+        local_dir = "/tmp/climate"
+
+        if not os.path.exists(local_dir):
+            os.makedirs(local_dir)
+
+        # Download all .tif files from GCS to local /tmp/
+        match_result = FileSystems.match([f"{base_dir}/*.tif"])[0]
+        for metadata in match_result.metadata_list:
+            gcs_path = metadata.path
+            local_path = os.path.join(local_dir, os.path.basename(gcs_path))
+            with FileSystems.open(gcs_path) as fsrc, open(local_path, "wb") as fdst:
+                fdst.write(fsrc.read())
+
         self.layers = {}
         for file in os.listdir(self.climate_dir):
             if file.endswith(".tif"):
@@ -426,7 +440,8 @@ class AnnotateWithBiogeoFn(DoFn):
         self.output_key = output_key
 
     def setup(self):
-        self.gdf = gpd.read_file(self.vector_path)
+        local_path = fetch_spatial_file_to_local(self.vector_path, "/tmp/biogeo_vector")
+        self.gdf = gpd.read_file(local_path)
 
         if self.gdf.crs.to_string() != "EPSG:4326":
             raise ValueError(f"Vector file must use EPSG:4326 CRS, got {self.gdf.crs}")
