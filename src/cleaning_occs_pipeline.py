@@ -70,10 +70,11 @@ def cleaning_occs_pipeline(args, beam_args):
         # Write cleaned output per species
         _ = (
                 cleaned
-                | 'ToJSON' >> beam.Map(lambda kv: (kv[0], json.dumps(kv[1])))
+                | 'ToJSON' >> beam.Map(lambda kv: (kv[0], kv[1]))
                 | 'AddShardedKey' >> beam.Map(lambda kv: ((kv[0], random.randint(0, args.shards - 1)), kv[1]))
                 | 'GroupByShardedKey' >> beam.GroupByKey()
                 | 'ReshuffleBalanceLoad' >> beam.Reshuffle()
+                | 'DropShardKey' >> beam.FlatMap(lambda kv: [(kv[0][0], record) for record in kv[1]])
                 | 'GroupBySpecies' >> beam.GroupByKey()
                 | 'WritePerSpecies' >> beam.ParDo(lambda kv: write_species_file(kv, args.output_dir))
         )
