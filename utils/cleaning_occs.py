@@ -1,9 +1,9 @@
 import math
-import os
 
 import geopandas as gpd
-from apache_beam.io.filesystems import FileSystems
 from shapely.geometry import Point
+
+from utils.helpers import fetch_spatial_file_to_local
 
 
 def filter_zero_coords(record):
@@ -152,34 +152,13 @@ def filter_centroid(record, centroids, max_dist=5000):
     return record
 
 
-def fetch_shapefile_to_local(shapefile_path: str, local_dir: str) -> str:
-    """
-    Downloads all files associated with a shapefile (e.g. .shp, .shx, .dbf) from GCS or local FS into a temp directory.
-    Returns the local path to the .shp file.
-    """
-    base_dir = shapefile_path.rsplit("/", 1)[0]
-    shp_name = shapefile_path.split("/")[-1]
-
-    if not os.path.exists(local_dir):
-        os.makedirs(local_dir)
-
-    match_result = FileSystems.match([f"{base_dir}/*"])[0]
-    for metadata in match_result.metadata_list:
-        fname = os.path.basename(metadata.path)
-        dest_path = os.path.join(local_dir, fname)
-        with FileSystems.open(metadata.path) as fsrc, open(dest_path, "wb") as fdst:
-            fdst.write(fsrc.read())
-
-    return os.path.join(local_dir, shp_name)
-
-
 def load_land_gdf(shapefile_path):
     """
     Load the continental land shapefile into a GeoDataFrame object, using GCS-aware local copying.
     :param path:
     :return: GeoDataFrame with sindex
     """
-    local_path = fetch_shapefile_to_local(shapefile_path, "/tmp/land_shapefile")
+    local_path = fetch_spatial_file_to_local(shapefile_path, "/tmp/land_shapefile")
     gdf = gpd.read_file(local_path)
     gdf.sindex
     return gdf
@@ -191,7 +170,7 @@ def load_centroid_list(shapefile_path):
     :param path:
     :return: a list of (lat, lon) tuples with centroid coordinates.
     """
-    local_path = fetch_shapefile_to_local(shapefile_path, "/tmp/centroid_shapefile")
+    local_path = fetch_spatial_file_to_local(shapefile_path, "/tmp/centroid_shapefile")
     gdf = gpd.read_file(local_path)
     return list(zip(gdf.geometry.y, gdf.geometry.x))
 
