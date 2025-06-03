@@ -3,6 +3,7 @@ import json
 import random
 
 import apache_beam as beam
+from apache_beam.io.filesystems import FileSystems
 from apache_beam.options.pipeline_options import PipelineOptions
 from apache_beam.io import fileio, WriteToBigQuery, BigQueryDisposition
 from apache_beam.options.pipeline_options import GoogleCloudOptions
@@ -14,11 +15,10 @@ def cleaning_occs_pipeline(args, beam_args):
     options = PipelineOptions(beam_args)
     options.view_as(GoogleCloudOptions).project = args.project
 
-    bq_schema = None
     if args.bq_schema:
-        with open(args.bq_schema) as f:
+        with FileSystems.open(args.bq_schema) as f:
             schema_dict = json.load(f)
-            bq_schema = convert_dict_to_table_schema(schema_dict)
+            table_schema = convert_dict_to_table_schema(schema_dict)
 
     with beam.Pipeline(options=options) as p:
         # Side inputs for coordinate validation: land and country centroids
@@ -100,7 +100,7 @@ def cleaning_occs_pipeline(args, beam_args):
                     | 'PrepareBQRows' >> beam.Map(lambda kv: kv[1])
                     | 'WriteToBigQuery' >> WriteToBigQuery(
                         table=args.bq_table,
-                        schema=bq_schema,
+                        schema=table_schema,
                         method='FILE_LOADS',
                         custom_gcs_temp_location=args.temp_location,
                         write_disposition=BigQueryDisposition.WRITE_TRUNCATE,
