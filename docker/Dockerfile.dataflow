@@ -1,0 +1,26 @@
+FROM apache/beam_python3.12_sdk:2.64.0
+
+# Set locale for I/O and encoding
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+# Install required system dependencies for Geo and Raster support
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    gdal-bin \
+    libgdal-dev \
+    libspatialindex-dev \
+    libsnappy1v5 \
+    locales \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set project root and copy all source code
+COPY .. /app
+WORKDIR /app/src
+ENV PYTHONPATH=/app
+
+# Install Python dependencies
+COPY ../requirements.txt /app/
+RUN pip install --upgrade pip
+RUN pip install -r /app/requirements.txt \
+    && pip install pyarrow==15.0.2 google-cloud-bigquery==3.17.2

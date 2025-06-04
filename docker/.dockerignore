@@ -1,0 +1,22 @@
+# Ignore local virtual environment
+../.venv/
+
+# Ignore large data directories
+data/
+out/
+*.tif
+*.zip
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Git
+.git/
+.gitignore
+
+# Local artifacts
+.DS_Store
+*.log
+
+README.md
