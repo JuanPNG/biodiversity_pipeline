@@ -4,7 +4,7 @@ This project defines a modular data pipeline built with Apache Beam. The workflo
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```bash
 /src  
@@ -28,6 +28,11 @@ This project defines a modular data pipeline built with Apache Beam. The workflo
   ├── climate/                         # CHELSA raster layers
   ├── bioregions/                      # WWF Ecoregions vector layers
   └── spatial_processing/              # Additional spatial layers (Land/centroid shapefiles)
+
+docker/
+  ├── Dockerfile.dataflow              # Image for Beam + GCP
+  └── .dockerignore                    # Ignored files during build
+
 
 requirements.txt
 README.md
@@ -70,7 +75,7 @@ python src/taxonomy_pipeline.py \
   --user elastic \
   --password yourpassword \
   --index your_es_index \
-  --output out/validated_taxonomy/taxonomy2 \
+  --output out/validated_taxonomy/taxonomy \
   --size 10 \
   --pages 1 \
   --sleep 0.25 \
@@ -182,69 +187,14 @@ python src/cleaning_occs_pipeline.py \
   --requirements_file requirements.txt \
   --save_main_session
 ```
-
-
-______
-OLD
-____
-
-Example with the **Occurrences pipeline**:
+## Docker Image for Beam + GCP
 
 ```bash
-python src/occurrences_pipeline.py \
-  --validated_input gs://your-bucket/validated/species_validated.jsonl \
-  --output_dir gs://your-bucket/output/occurrences \
-  --limit 150 \
-  --runner DataflowRunner \
-  --project your-project-id \
-  --region europe-west1 \
-  --temp_location gs://your-bucket/temp \
-  --staging_location gs://your-bucket/staging \
-  --requirements_file requirements.txt \
-  --save_main_session
-```
+cd docker
 
-Example with the **Cleaning Pipeline**:
+# Build Docker image
+docker build -f Dockerfile.dataflow -t <your-gcp-region>-docker.pkg.dev/<your-project-id>/biodiversity-images/biodiversity-pipeline:latest ..
 
-Requirements
-
-* Natural Earth shapefiles: landmass and admin-0 label points
-* Cleaned schema JSON if loading to BigQuery: utils/bq_occurrence_schema.json
-
-#### Local Execution (No BigQuery)
-
-```
-python src/cleaning_occs_pipeline.py \
-  --input_glob "out/occurrences_raw/*.jsonl" \
-  --output_dir "out/occurrences_clean" \
-  --land_shapefile "data/spatial_processing/ne_10m_land.zip" \
-  --centroid_shapefile "data/spatial_processing/ne_10m_admin_0_label_points.zip" \
-  --max_uncertainty 1000 \
-  --max_centroid_dist 5000 \
-  --direct_num_workers=4
- ```
-
-Produces:
-
-* One .jsonl file per species in out/occurrences_clean/
-
-#### GCP Execution (With BigQuery)
-
-```
-python src/cleaning_occs_pipeline.py \
-  --input_glob "gs://your-bucket/occurrences_raw/*.jsonl" \
-  --output_dir "gs://your-bucket/cleaned_occurrences" \
-  --land_shapefile "gs://your-bucket/shapes/ne_10m_land.zip" \
-  --centroid_shapefile "gs://your-bucket/shapes/ne_10m_admin_0_label_points.zip" \
-  --max_uncertainty 1000 \
-  --max_centroid_dist 5000 \
-  --bq_table your-project:your_dataset.cleaned_occurrences \
-  --bq_schema utils/bq_occurrence_schema.json \
-  --temp_location gs://your-bucket/temp \
-  --staging_location gs://your-bucket/staging \
-  --runner DataflowRunner \
-  --project your-project \
-  --region europe-west1 \
-  --requirements_file requirements.txt \
-  --save_main_session
+# Push to Artifact Registry
+docker push <your-gcp-region>-docker.pkg.dev/<your-project-id>/biodiversity-images/biodiversity-pipeline:latest
 ```
