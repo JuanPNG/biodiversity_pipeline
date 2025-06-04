@@ -1,3 +1,5 @@
+import tempfile
+
 import geopandas as gpd
 import json
 import os
@@ -282,8 +284,8 @@ class GenerateUncertaintyAreaFn(DoFn):
 
 class AnnotateWithCHELSAFn(DoFn):
     def __init__(self, climate_dir, output_key="clim_dataset"):
-        self.climate_dir = climate_dir
         self.output_key = output_key
+        self.gcs_climate_dir = climate_dir
 
         self.temp_vars = {
             'bio1', 'bio5', 'bio6', 'bio8', 'bio9', 'bio10', 'bio11'
@@ -296,20 +298,27 @@ class AnnotateWithCHELSAFn(DoFn):
         }
 
     def setup(self):
-        base_dir = self.climate_dir
-        local_dir = "/tmp/climate"
+        # Create a temporary directory on the worker
+        self.temp_dir = tempfile.mkdtemp()
+        self.climate_dir = self.temp_dir
 
-        if not os.path.exists(local_dir):
-            os.makedirs(local_dir)
+        # Match all climate files in GCS
+        gcs_pattern = os.path.join(self.gcs_climate_dir.rstrip('/'), '*.tif')
+        match_result = FileSystems.match([gcs_pattern])[0]
+        metadata_list = match_result.metadata_list
 
-        # Download all .tif files from GCS to local /tmp/
-        match_result = FileSystems.match([f"{base_dir}/*.tif"])[0]
-        for metadata in match_result.metadata_list:
-            gcs_path = metadata.path
-            local_path = os.path.join(local_dir, os.path.basename(gcs_path))
-            with FileSystems.open(gcs_path) as fsrc, open(local_path, "wb") as fdst:
-                fdst.write(fsrc.read())
+        # Download each file to the temp directory
+        for metadata in metadata_list:
+            gcs_file_path = metadata.path
+            filename = os.path.basename(gcs_file_path)
 
+            local_path = os.path.join(self.temp_dir, filename)
+
+            with FileSystems.open(metadata.path) as gcs_file:
+                with open(local_path, 'wb') as local_file:
+                    local_file.write(gcs_file.read())
+
+        # Checking CRS
         self.layers = {}
         for file in os.listdir(self.climate_dir):
             if file.endswith(".tif"):
