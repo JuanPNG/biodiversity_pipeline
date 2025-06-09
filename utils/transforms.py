@@ -16,10 +16,10 @@ from apache_beam.io.filesystems import FileSystems
 from collections import defaultdict
 from pygbif import species as gbif_spp, occurrences as gbif_occ
 from shapely import wkt
-from shapely.geometry import Point
+from shapely.geometry import Point, MultiPoint
 from shapely.ops import transform
 from rasterio.mask import mask
-from utils.helpers import sanitize_species_name, fetch_spatial_file_to_local
+from utils.helpers import sanitize_species_name, fetch_spatial_file_to_local, extract_species_name
 
 
 class FetchESFn(DoFn):
@@ -530,3 +530,51 @@ class BiogeoSummaryNestedFn(DoFn):
         output = (accession, summary)
 
         yield output
+
+
+class EstimateRangeFn(DoFn):
+    def process(self, element):
+        file_path = element.metadata.path
+        species = extract_species_name(file_path)
+
+        with FileSystems.open(file_path) as f:
+            content = f.read().decode("utf-8")
+        lines = content.splitlines()
+
+        accession = None
+        coords = []
+        for line in lines:
+            try:
+                record = json.loads(line)
+
+                if accession is None:  # Read accession only for first record.
+                    accession = record["accession"]
+
+                lat = record.get("decimalLatitude")
+                lon = record.get("decimalLongitude")
+
+                if lat is not None and lon is not None:
+                    coords.append(Point(lon, lat))
+            except Exception:
+                continue
+
+        if len(coords) < 3:
+            return [{
+                "accession": accession,
+                "species": species,
+                "range_km2": None,
+                "note": "Insufficient points for convex hull"
+            }]
+
+        multipoint = MultiPoint(coords)
+        hull = multipoint.convex_hull
+
+        project = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:6933", always_xy=True).transform
+        hull_proj = transform(project, hull)
+        area_km2 = hull_proj.area / 1e6
+
+        return [{
+            "accession": accession,
+            "species": species,
+            "range_km2": round(area_km2, 2)
+        }]
