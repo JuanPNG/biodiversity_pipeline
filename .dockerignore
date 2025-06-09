@@ -1,9 +1,12 @@
 # Ignore local virtual environment
 ../.venv/
+../.venv-airflow/
+../.env
 
 # Ignore large data directories
 data/
 out/
+airflow/
 *.tif
 *.zip
 
