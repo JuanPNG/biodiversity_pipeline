@@ -218,8 +218,9 @@ class WriteSpeciesOccurrencesFn(DoFn):
                 occ_out = {
                     'accession': record.get('accession'),
                     'tax_id': record.get('tax_id'),
+                    'species': record.get('species'),  # Name from GBDP. For consistency with GBDP.
                     'gbif_usageKey': occ.get('taxonKey'),
-                    'species': occ.get('species'),
+                    'gbif_species': occ.get('species'),  # Name in GBIF.
                     'decimalLatitude': occ.get('decimalLatitude'),
                     'decimalLongitude': occ.get('decimalLongitude'),
                     'coordinateUncertaintyInMeters': occ.get('coordinateUncertaintyInMeters'),
