@@ -223,11 +223,18 @@ class WriteSpeciesOccurrencesFn(DoFn):
                     'decimalLatitude': occ.get('decimalLatitude'),
                     'decimalLongitude': occ.get('decimalLongitude'),
                     'coordinateUncertaintyInMeters': occ.get('coordinateUncertaintyInMeters'),
+                    'geodeticDatum': occ.get('geodeticDatum'),
+                    'elevation': occ.get('elevation'),
                     'eventDate': occ.get('eventDate'),
                     'countryCode': occ.get('countryCode'),
+                    'gadm': occ.get('gadm'),
                     'basisOfRecord': occ.get('basisOfRecord'),
                     'occurrenceID': occ.get('occurrenceID'),
-                    'gbifID': occ.get('gbifID')
+                    'gbifID': occ.get('gbifID'),
+                    'institutionCode': occ.get('institutionCode'),
+                    'collectionCode': occ.get('collectionCode'),
+                    'catalogNumber': occ.get('catalogNumber'),
+                    'iucnRedListCategory': occ.get('iucnRedListCategory')
                 }
                 lines.append(json.dumps(occ_out))
 
