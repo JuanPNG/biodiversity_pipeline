@@ -2,7 +2,7 @@ import json
 import os
 import re
 from apache_beam.io.filesystems import FileSystems
-from apache_beam.io.gcp.internal.clients import bigquery
+from apache_beam.io.gcp.internal.clients import bigquery as bq
 
 def sanitize_species_name(species: str) -> str:
     """
@@ -56,15 +56,23 @@ def merge_annotations(inputs):
 def convert_dict_to_table_schema(schema_dict_list):
     """
     Converts a list of schema dicts (from JSON) into a Beam-compatible TableSchema.
+    Recursively parse nested fields (Type: RECORD).
     """
-    table_schema = bigquery.TableSchema()
-    for field in schema_dict_list:
-        table_field = bigquery.TableFieldSchema()
-        table_field.name = field["name"]
-        table_field.type = field["type"]
-        table_field.mode = field.get("mode", "NULLABLE")
-        table_schema.fields.append(table_field)
-    return table_schema
+    def _convert_field(field_dict):
+        field = bq.TableFieldSchema()
+        field.name = field_dict["name"]
+        field.type = field_dict["type"]
+        field.mode = field_dict.get("mode", "NULLABLE")
+
+        if field.type == "RECORD" and "fields" in field_dict:
+            field.fields.extend([_convert_field(f) for f in field_dict["fields"]])
+
+        return field
+
+    schema = bq.TableSchema()
+    schema.fields.extend([_convert_field(f) for f in schema_dict_list])
+    return schema
+
 
 
 def fetch_spatial_file_to_local(shapefile_path: str, local_dir: str) -> str:
