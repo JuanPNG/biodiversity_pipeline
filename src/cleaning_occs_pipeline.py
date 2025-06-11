@@ -13,7 +13,6 @@ from utils.helpers import extract_species_name, write_species_file, convert_dict
 
 def cleaning_occs_pipeline(args, beam_args):
     options = PipelineOptions(beam_args)
-    options.view_as(GoogleCloudOptions).project = args.project
 
     if args.bq_schema:
         with FileSystems.open(args.bq_schema) as f:
@@ -125,7 +124,6 @@ if __name__ == '__main__':
     parser.add_argument('--bq_table', required=False, help='BigQuery table in the format project:dataset.table')
     parser.add_argument('--bq_schema', required=False, help='Path to BigQuery schema JSON (optional if table exists)')
     parser.add_argument('--temp_location', required=False, help='GCS temp path for BigQuery load jobs')
-    parser.add_argument('--project', required=False, help='GCP Project ID')
     parser.add_argument('--shards', type=int, default=5, help='Sharding factor to avoid skew in GroupByKey')
 
     args, beam_args = parser.parse_known_args()
