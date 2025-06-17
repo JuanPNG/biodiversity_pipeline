@@ -51,8 +51,8 @@ def cleaning_occs_pipeline(args, beam_args):
                 | 'FilterHighUncertainty' >> beam.Filter(
                     lambda kv: cl.filter_high_uncertainty(
                         kv[1],
-                        args.max_uncertainty,
-                        args.min_uncertainty
+                        min_uncertainty=args.min_uncertainty,
+                        max_uncertainty=args.max_uncertainty
                     ) is not None
                 )
                 | 'FilterSea' >> beam.Filter(
