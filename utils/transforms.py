@@ -268,7 +268,7 @@ class GenerateUncertaintyAreaFn(DoFn):
         try:
             lat = float(lat)
             lon = float(lon)
-            radius = float(radius)
+            radius = max(float(radius), 100.0)  # Clamp to minimum 100 to avoid point geometries and empty masks.
         except (TypeError, ValueError):
             print(f"[WARN] Invalid numeric values in record: {record}", file=sys.stderr)
             return
