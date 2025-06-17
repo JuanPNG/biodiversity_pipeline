@@ -49,7 +49,11 @@ def cleaning_occs_pipeline(args, beam_args):
                 | 'FilterZeroCoords' >> beam.Filter(lambda kv: cl.filter_zero_coords(kv[1]) is not None)
                 | 'FilterInvalidCoords' >> beam.Filter(lambda kv: cl.filter_invalid_coords(kv[1]) is not None)
                 | 'FilterHighUncertainty' >> beam.Filter(
-                    lambda kv: cl.filter_high_uncertainty(kv[1], args.max_uncertainty) is not None
+                    lambda kv: cl.filter_high_uncertainty(
+                        kv[1],
+                        args.max_uncertainty,
+                        args.min_uncertainty
+                    ) is not None
                 )
                 | 'FilterSea' >> beam.Filter(
                     lambda kv, land: cl.filter_sea(kv[1], land) is not None,
@@ -65,6 +69,8 @@ def cleaning_occs_pipeline(args, beam_args):
                 | 'GroupDuplicates' >> beam.GroupByKey()
                 | 'Deduplicate' >> beam.Map(lambda kv: (kv[0][0], cl.select_best_record(list(kv[1]))))
         )
+
+        cleaned | beam.Map(lambda line: print(line))
 
         # Write cleaned output per species
         _ = (
@@ -116,7 +122,8 @@ if __name__ == '__main__':
     parser.add_argument('--output_dir', required=True, help='Directory for cleaned output JSONL files')
     parser.add_argument('--land_shapefile', required=True, help='Path to Natural Earth land shapefile')
     parser.add_argument('--centroid_shapefile', required=True, help='Path to admin-0 label points shapefile')
-    parser.add_argument('--max_uncertainty', type=float, default=1000, help='Max coordinate uncertainty in meters')
+    parser.add_argument('--min_uncertainty', type=float, default=1000, help='Min coordinate uncertainty in meters')
+    parser.add_argument('--max_uncertainty', type=float, default=5000, help='Max coordinate uncertainty in meters')
     parser.add_argument('--max_centroid_dist', type=float, default=5000, help='Max distance to centroid in meters')
     # If consolidated file needed for inspection
     parser.add_argument('--output_consolidated', required=False, help='Optional consolidated output path prefix')
