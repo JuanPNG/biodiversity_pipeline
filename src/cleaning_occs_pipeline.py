@@ -70,8 +70,6 @@ def cleaning_occs_pipeline(args, beam_args):
                 | 'Deduplicate' >> beam.Map(lambda kv: (kv[0][0], cl.select_best_record(list(kv[1]))))
         )
 
-        cleaned | beam.Map(lambda line: print(line))
-
         # Write cleaned output per species
         _ = (
                 cleaned
