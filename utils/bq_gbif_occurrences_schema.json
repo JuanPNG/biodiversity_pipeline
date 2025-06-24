@@ -8,7 +8,7 @@
   { "name": "decimalLongitude", "type": "FLOAT", "mode": "NULLABLE" },
   { "name": "coordinateUncertaintyInMeters", "type": "FLOAT", "mode": "NULLABLE" },
   { "name": "geodeticDatum", "type": "STRING", "mode": "NULLABLE" },
-  { "name": "elevation", "type": "STRING", "mode": "NULLABLE" },
+  { "name": "elevation", "type": "FLOAT", "mode": "NULLABLE" },
   { "name": "eventDate", "type": "STRING", "mode": "NULLABLE" },
   { "name": "countryCode", "type": "STRING", "mode": "NULLABLE" },
   {
