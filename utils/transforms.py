@@ -116,7 +116,7 @@ class ENATaxonomyFn(DoFn):
             return
 
         try:
-            record["scientificName"] = root.find("taxon").get("scientificName")
+            record["scientificName"] = root.find("taxon").get("scientificName")  # TODO: Use this as the new source for species name.
         except Exception:
             record["ena_error"] = "Missing scientificName"
             yield record
@@ -142,7 +142,7 @@ class ValidateNamesFn(DoFn):
     TO_CHECK = 'to_check'
 
     def process(self, record):
-        name = record.get('species')
+        name = record.get('species')  # TODO: Change to scientificName from ENA as the source of truth of the name.
         if not name:
             yield pvalue.TaggedOutput(self.TO_CHECK, record)
             return
@@ -188,7 +188,7 @@ class WriteSpeciesOccurrencesFn(DoFn):
         self.gbif_client = gbif_occ
 
     def process(self, record):
-        species = record.get('species')
+        species = record.get('species')  # TODO: Change to scientificName from ENA as the source of truth of the name.
         usage_key = record.get('gbif_usageKey')
 
         if not species or usage_key is None:
@@ -218,7 +218,7 @@ class WriteSpeciesOccurrencesFn(DoFn):
                 occ_out = {
                     'accession': record.get('accession'),
                     'tax_id': record.get('tax_id'),
-                    'species': record.get('species'),  # Name from GBDP. For consistency with GBDP.
+                    'species': record.get('species'),  # Name from GBDP. For consistency with GBDP.  # TODO: Change to scientificName from ENA as the source of truth of the name.
                     'gbif_usageKey': occ.get('taxonKey'),
                     'gbif_species': occ.get('species'),  # Name in GBIF.
                     'decimalLatitude': occ.get('decimalLatitude'),
