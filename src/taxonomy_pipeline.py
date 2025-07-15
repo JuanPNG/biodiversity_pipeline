@@ -43,11 +43,11 @@ def taxonomy_pipeline(args, beam_args):
         # Validate species names against GBIF
         validated_output = (
             enriched
-            | "ValidateGBIF" >> beam.ParDo(ValidateNamesFn()).with_outputs('unmatched', main='matched')
+            | "ValidateGBIF" >> beam.ParDo(ValidateNamesFn()).with_outputs(ValidateNamesFn.TO_CHECK, main=ValidateNamesFn.VALIDATED)
         )
 
-        validated = validated_output.matched
-        unmatched = validated_output.unmatched
+        validated = validated_output.validated
+        unmatched = validated_output.to_check
 
         # Write validated records
         (
