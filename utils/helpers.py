@@ -94,3 +94,22 @@ def fetch_spatial_file_to_local(shapefile_path: str, local_dir: str) -> str:
             fdst.write(fsrc.read())
 
     return os.path.join(local_dir, shp_name)
+
+
+def merge_gbif_url(kv):
+    accession, groups = kv
+    provenance_records = groups.get("provenance", [])
+    taxonomy_records = groups.get("taxonomy", [])
+
+    if not provenance_records:
+        return
+
+    gbif_key = None
+    if taxonomy_records:
+        gbif_key = taxonomy_records[0].get("gbif_usageKey")
+
+    gbif_url = f"https://www.gbif.org/species/{gbif_key}" if gbif_key else None
+
+    for record in provenance_records:
+        record["gbif_url"] = gbif_url
+        yield record
