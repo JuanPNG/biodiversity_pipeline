@@ -158,8 +158,8 @@ class ValidateNamesFn(DoFn):
         })
 
         mt = gb.get('matchType')
-        st = gb.get('status')
-        if mt == 'NONE' or mt != 'EXACT' or st == 'SYNONYM':
+        confidence = gb.get('confidence', 0)
+        if mt == 'NONE' or (mt == 'FUZZY' and confidence < 95) or mt == 'HIGHERRANK':
             if gb.get('acceptedUsageKey'):
                 record['gbif_acceptedUsageKey'] = gb.get('acceptedUsageKey')
             if gb.get('alternatives'):
@@ -586,3 +586,70 @@ class EstimateRangeFn(DoFn):
             "species": species,
             "range_km2": round(area_km2, 2)
         }]
+
+
+class FetchProvenanceMetadataFn(DoFn):
+    """
+    Apache Beam DoFn to extract data provenance metadata from ElasticSearch.
+    Emits a record for each annotation including:
+      - accession
+      - Biodiversity portal URL
+      - GTF URL (if available)
+      - Ensembl browser URL
+    """
+
+    def __init__(self, host, user, password, index, page_size=100, max_pages=10):
+        self.host = host
+        self.user = user
+        self.password = password
+        self.index = index
+        self.page_size = page_size
+        self.max_pages = max_pages
+
+    def setup(self):
+        self.es = Elasticsearch(
+            hosts=self.host,
+            basic_auth=(self.user, self.password)
+        )
+        self.seen_accessions = set()  # Deduplication tracker (per worker)
+
+    def process(self, unused_element):
+        after = None
+        for _ in range(self.max_pages):
+            query = {
+                'size': self.page_size,
+                'sort': {'tax_id': 'asc'},
+                'query': {'match': {'annotation_complete': 'Done'}}
+            }
+
+            if after:
+                query['search_after'] = after
+
+            try:
+                response = self.es.search(index=self.index, body=query)
+            except Exception as e:
+                yield {'error': f'Failed to query Elasticsearch: {str(e)}'}
+                break
+
+            hits = response.get('hits', {}).get('hits', [])
+            if not hits:
+                break
+
+            for record in hits:
+                tax_id = record['_source'].get('tax_id')
+                annotations = record['_source'].get('annotation', [])
+
+                for annotation in annotations:
+                    accession = annotation.get("accession")
+                    if accession in self.seen_accessions:
+                        continue
+                    self.seen_accessions.add(accession)
+
+                    yield {
+                        "accession": annotation.get("accession"),
+                        "Biodiversity_portal": f"https://www.ebi.ac.uk/biodiversity/data_portal/{tax_id}",
+                        "GTF": annotation.get("annotation", {}).get("GTF", "no_gtf"),
+                        "Ensembl_browser": annotation.get("view_in_browser")
+                    }
+
+            after = hits[-1].get('sort')
