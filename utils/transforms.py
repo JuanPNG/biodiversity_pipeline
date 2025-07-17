@@ -142,7 +142,7 @@ class ValidateNamesFn(DoFn):
     TO_CHECK = 'to_check'
 
     def process(self, record):
-        name = record.get('species')  # TODO: Change to scientificName from ENA as the source of truth of the name.
+        name = record.get('scientificName') # Name from ENA
         if not name:
             yield pvalue.TaggedOutput(self.TO_CHECK, record)
             return
@@ -188,7 +188,7 @@ class WriteSpeciesOccurrencesFn(DoFn):
         self.gbif_client = gbif_occ
 
     def process(self, record):
-        species = record.get('species')  # TODO: Change to scientificName from ENA as the source of truth of the name.
+        species = record.get('scientificName')  # Name from ENA
         usage_key = record.get('gbif_usageKey')
 
         if not species or usage_key is None:
@@ -218,7 +218,7 @@ class WriteSpeciesOccurrencesFn(DoFn):
                 occ_out = {
                     'accession': record.get('accession'),
                     'tax_id': record.get('tax_id'),
-                    'species': record.get('species'),  # Name from GBDP. For consistency with GBDP.  # TODO: Change to scientificName from ENA as the source of truth of the name.
+                    'species': record.get('scientificName'),  # Name from ENA
                     'gbif_usageKey': occ.get('taxonKey'),
                     'gbif_species': occ.get('species'),  # Name in GBIF.
                     'decimalLatitude': occ.get('decimalLatitude'),
