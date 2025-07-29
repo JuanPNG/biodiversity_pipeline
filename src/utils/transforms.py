@@ -19,7 +19,7 @@ from shapely import wkt
 from shapely.geometry import Point, MultiPoint
 from shapely.ops import transform
 from rasterio.mask import mask
-from utils.helpers import sanitize_species_name, fetch_spatial_file_to_local, extract_species_name
+from src.utils.helpers import sanitize_species_name, fetch_spatial_file_to_local, extract_species_name
 
 
 class FetchESFn(DoFn):

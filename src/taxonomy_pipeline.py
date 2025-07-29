@@ -4,8 +4,8 @@ import apache_beam as beam
 from apache_beam.io.filesystems import FileSystems
 from apache_beam.options.pipeline_options import PipelineOptions
 
-from utils.helpers import convert_dict_to_table_schema
-from utils.transforms import FetchESFn, ENATaxonomyFn, ValidateNamesFn
+from src.utils.helpers import convert_dict_to_table_schema
+from src.utils.transforms import FetchESFn, ENATaxonomyFn, ValidateNamesFn
 
 
 def taxonomy_pipeline(args, beam_args):

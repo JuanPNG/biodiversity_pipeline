@@ -5,7 +5,7 @@ from apache_beam.options.pipeline_options import PipelineOptions, SetupOptions
 from apache_beam.metrics import MetricsFilter
 from apache_beam.io.filesystems import FileSystems
 
-from utils.transforms import WriteSpeciesOccurrencesFn
+from src.utils.transforms import WriteSpeciesOccurrencesFn
 
 
 def occurrences_pipeline(args, beam_args):

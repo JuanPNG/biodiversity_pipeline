@@ -3,11 +3,11 @@ import json
 import apache_beam as beam
 from apache_beam.io.filesystems import FileSystems
 from apache_beam.options.pipeline_options import PipelineOptions
-from apache_beam.io.fileio import MatchFiles, ReadMatches
+from apache_beam.io.fileio import MatchFiles
 from apache_beam.io.gcp.bigquery import WriteToBigQuery, BigQueryDisposition
 from apache_beam.io.gcp.bigquery_tools import parse_table_schema_from_json
-from utils.helpers import merge_annotations, convert_dict_to_table_schema
-from utils.transforms import (
+from src.utils.helpers import merge_annotations
+from src.utils.transforms import (
     GenerateUncertaintyAreaFn,
     AnnotateWithCHELSAFn,
     AnnotateWithBiogeoFn,
