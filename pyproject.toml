@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "biodiv-pipelines"
+version = "0.1.0"
+description = "Modular Apache Beam pipelines for biodiversity data processing"
+authors = [{ name = "JPNG" }]
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+biodiv_pipelines = ["utils/*.json"]

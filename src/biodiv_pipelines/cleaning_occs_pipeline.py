@@ -6,8 +6,8 @@ import apache_beam as beam
 from apache_beam.io.filesystems import FileSystems
 from apache_beam.options.pipeline_options import PipelineOptions
 from apache_beam.io import fileio, WriteToBigQuery, BigQueryDisposition
-from src.utils import cleaning_occs as cl
-from src.utils.helpers import extract_species_name, write_species_file, convert_dict_to_table_schema
+from biodiv_pipelines.utils import cleaning_occs as cl
+from biodiv_pipelines.utils.helpers import extract_species_name, write_species_file, convert_dict_to_table_schema
 
 
 def cleaning_occs_pipeline(args, beam_args):
