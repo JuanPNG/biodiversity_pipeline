@@ -64,17 +64,17 @@ This project defines a modular data pipeline built with Apache Beam. The workflo
 
 ## Local Execution
 
-### Install dependencies
+### Install the biodiv_pipelines package
 
 ```bash
-pip install -r requirements.txt
+pip install -e .
 ```
 
 ### 1. Taxonomy pipeline
 Fetch genome metadata from Elasticsearch, enrich with ENA taxonomy, and validate species names using GBIF.
 
 ```bash
-python src/taxonomy_pipeline.py \
+python -m biodiv_pipelines.taxonomy_pipeline \
   --host localhost \
   --user elastic \
   --password yourpassword \
@@ -95,7 +95,7 @@ Outputs:
 Download GBIF occurrences for validated species using their GBIF usageKey. (**NOTE**: using occurrences.search for now.)
 
 ```bash
-python src/occurrences_pipeline.py \
+python -m biodiv_pipelines.occurrences_pipeline \
   --validated_input out/validated_taxonomy/taxonomy_validated.jsonl \
   --output_dir out/occurrences_raw \
   --limit 100
@@ -112,7 +112,7 @@ Produces:
 Filter and deduplicate raw occurrence records. Removes invalid coordinates, zero-coordinates, coordinates at the sea, and administrative centroids.
 
 ```bash
-python src/cleaning_occs_pipeline.py \
+python -m biodiv_pipelines.cleaning_occs_pipeline \
   --input_glob "out/occurrences_raw/*.jsonl" \
   --output_dir "out/occurrences_clean" \
   --land_shapefile "data/spatial_processing/ne_10m_land.zip" \
@@ -130,7 +130,7 @@ Outputs:
 Use cleaned occurrence records to extract climate and area classification information from spatial data layers. At the moment: CHELSA climatologies and WWF Ecorregions (Dinnerstein et al. 2017).
 
 ```bash
-python src/spatial_annotation_pipeline.py \
+python -m biodiv_pipelines.spatial_annotation_pipeline \
   --input_occs "out/occurrences_clean/occ_*.jsonl" \
   --climate_dir "data/climate" \
   --biogeo_vector "data/bioregions/Ecoregions2017.zip" \
@@ -145,7 +145,7 @@ Outputs:
 ### 5. Range estimation pipeline
 
 ```bash
-python src/range_estimation_pipeline.py \
+python -m biodiv_pipelines.range_estimation_pipeline \
   --input_glob "out/occurrences_clean/occ_*.jsonl" \
   --bq_table your-project:your_dataset.range_estimates \
   --bq_schema "utils/bq_range_estimates_schema.json" \
@@ -194,7 +194,7 @@ docker push <region>-docker.pkg.dev/<project-id>/<repo>/biodiversity-pipeline:la
 ### Example: Taxonomy pipeline
 
 ```bash
-python src/taxonomy_pipeline.py \
+python -m biodiv_pipelines.taxonomy_pipeline \
   --host <secret> \
   --user <secret> \
   --password <secret> \
@@ -216,7 +216,7 @@ python src/taxonomy_pipeline.py \
 ### Example: Occurrence pipeline
 
 ```bash
-python src/occurrences_pipeline.py \
+python -m biodiv_pipelines.occurrences_pipeline \
   --validated_input gs://my-bucket/validated_taxonomy/test_taxonomy_validated.jsonl \
   --output_dir gs://my-bucket/test_jpng/out/occurrences_raw \
   --limit 300 \
@@ -233,7 +233,7 @@ python src/occurrences_pipeline.py \
 ### Example: Cleaning pipeline
 
 ```bash
-python src/cleaning_occs_pipeline.py \
+python -m biodiv_pipelines.cleaning_occs_pipeline \
   --input_glob gs://my-bucket/out/occurrences_raw/occ_*.jsonl \
   --output_dir gs://my-bucket//out/occurrences_clean \
   --land_shapefile gs://my-bucket/data/spatial_processing/ne_10m_land/ne_10m_land.shp \
@@ -256,7 +256,7 @@ python src/cleaning_occs_pipeline.py \
 ### Example: Spatial annotation pipeline
 
 ```bash
- python src/spatial_annotation_pipeline.py \
+ python -m biodiv_pipelines.spatial_annotation_pipeline \
   --input_occs gs://my-bucket/out/occurrences_clean/*.jsonl \
   --climate_dir gs://my-bucket/data/climate \
   --biogeo_vector gs://my-bucket/data/bioregions/Ecoregions2017/Ecoregions2017.shp \
@@ -277,7 +277,7 @@ python src/cleaning_occs_pipeline.py \
 ### Example: Range estimation
 
 ```bash
-python range_estimation_pipeline.py \
+python -m biodiv_pipelines.range_estimation_pipeline \
   --input_glob gs://my-bucket/out/occurrences_clean/*.jsonl \
   --bq_table my-project:my_dataset.species_range_estimates \
   --bq_schema gs://my-bucket/utils/bq_range_estimates_schema.json \
