@@ -183,7 +183,7 @@ To run the pipeline on Dataflow with custom dependencies or pinned versions, you
 2. Build the image using the provided `Dockerfile.dataflow`:
 
 ```bash
-docker build -f Dockerfile.dataflow -t <region>-docker.pkg.dev/<project-id>/<repo>/biodiversity-pipeline:latest ..
+docker build --no-cache -f docker/Dockerfile.dataflow -t <region>-docker.pkg.dev/<project-id>/<repo>/biodiversity-pipeline:latest ..
 ```
 3. Push the image to Google Artifact Registry:
 
