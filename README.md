@@ -38,6 +38,50 @@ This project defines a modular data pipeline built with Apache Beam. The workflo
 └── README.md
 ```
 
+```bash
+
+.
+├── README.md
+├── data
+│   ├── climate/                          # CHELSA raster climate data
+│   ├── bioregions/                       # WWF Ecoregion shapefiles
+│   └── spatial_processing/               # Natural Earth land and centroid shapefiles
+├── out/
+│   ├── validated_taxonomy/               # Taxonomy validation outputs
+│   ├── occurrences_raw/                  # Raw GBIF occurrence records
+│   ├── occurrences_clean/                # Cleaned GBIF occurrences
+│   └── spatial/                          # Annotated occurrence records and summaries
+├── docker                                
+│   └── Dockerfile.dataflow               # Docker file for building the Dataflow Image.
+├── pyproject.toml
+├── requirements.txt
+└── src
+    └── biodiv_pipelines
+        ├── __init__.py
+        ├── taxonomy_pipeline.py              # Retrieves and validates taxonomy of species with complete genome annotations
+        ├── occurrences_pipeline.py           # Search and downloads a sample of GBIF occurrences using usageKeys
+        ├── cleaning_occs_pipeline.py         # Cleans and deduplicates occurrence records
+        ├── spatial_annotation_pipeline.py    # Annotates coordinates with climate and biogeographic data
+        ├── range_estimation_pipeline.py      # Estimates species' geographic range area (Extent of occurrence/Convex Hull)
+        ├── data_provenance_pipeline.py       # Collects links from data sources per species
+        ├── cleaning_summary_pipeline.py 
+        ├── climate_summary_pipeline.py
+        ├── biogeo_summary_pipeline.py
+        └── utils
+            ├── __init__.py
+            ├── bq_gbif_occurrences_schema.json
+            ├── bq_metadata_url_schema.json
+            ├── bq_range_estimates_schema.json
+            ├── bq_spatial_annotation_schema.json
+            ├── bq_spatial_annotation_summ_schema.json
+            ├── bq_taxonomy_schema.json
+            ├── cleaning_occs.py               # Cleaning logic for occurrence data.
+            ├── helpers.py                     # Shared utilities (schema conversion, I/O helpers, etc.)
+            └── transforms.py                  # Apache Beam DoFns for data processing
+
+```
+
+
 ## Workflow Overview
 
 1. **Taxonomy pipeline**  
