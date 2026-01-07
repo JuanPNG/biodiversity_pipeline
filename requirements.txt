@@ -1,6 +1,6 @@
 # Needed packages and versions
 apache-beam[gcp]==2.64.0
-pygbif~=0.6.4
+pygbif==0.6.5 # TODO Update to 0.6.6. Pinned to 0.6.5
 requests~=2.32.3
 elasticsearch~=8.15.1
 bs4~=0.0.2
