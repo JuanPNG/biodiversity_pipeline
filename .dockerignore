@@ -1,25 +1,40 @@
-# Ignore local virtual environment
-../.venv/
-../.venv-airflow/
-../.env
+# Virtual environments / local env files
+.venv/
+.env
+delete.py
+sql_integration
 
-# Ignore large data directories
+# Large local data and outputs (should not be baked into the image)
 data/
 out/
 airflow/
 *.tif
 *.zip
 
-# Python cache
+# Python cache / tooling caches
 __pycache__/
 *.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
 
 # Git
 .git/
 .gitignore
 
-# Local artifacts
+# IDE / OS files
 .DS_Store
 *.log
+.vscode/
+.idea/
 
-README.md
+# Keys / credentials
+*.pem
+*.key
+*.p12
+*credentials*
