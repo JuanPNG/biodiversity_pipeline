@@ -7,38 +7,6 @@ This project defines a modular data pipeline built with Apache Beam. The workflo
 ## Project Structure
 
 ```bash
-.
-├── src/
-│   ├── taxonomy_pipeline.py              # Retrieves and validates taxonomy of species with complete genome annotations
-│   ├── occurrences_pipeline.py           # Downloads GBIF occurrences using usageKeys
-│   ├── cleaning_occs_pipeline.py         # Cleans and deduplicates occurrence records
-│   ├── spatial_annotation_pipeline.py    # Annotates coordinates with climate and biogeographic data
-│   └── range_estimation_pipeline.py      # Estimates species' geographic range area (Extent of occurrence/Convex Hull)
-│
-├── utils/
-│   ├── transforms.py                     # Apache Beam DoFns for data processing
-│   ├── cleaning_occs.py                  # Cleaning logic for occurrence data.
-│   ├── helpers.py                        # Shared utilities (schema conversion, I/O helpers, etc.)
-│   └── schema_files                      # Schemas for BigQuery tables.
-│
-├── out/
-│   ├── validated_taxonomy/               # Taxonomy validation outputs
-│   ├── occurrences_raw/                  # Raw GBIF occurrence records
-│   ├── occurrences_clean/                # Cleaned GBIF occurrences
-│   └── spatial/                          # Annotated occurrence records and summaries
-│
-├── data/
-│   ├── climate/                          # CHELSA raster climate data
-│   ├── bioregions/                       # WWF Ecoregion shapefiles
-│   └── spatial_processing/               # Natural Earth land and centroid shapefiles
-│
-├── docker/                               # Docker file for building the Dataflow Image.
-│
-├── requirements.txt
-└── README.md
-```
-
-```bash
 
 .
 ├── README.md
