@@ -80,6 +80,7 @@ class FetchESFn(DoFn):
                         "annotation_complete='Done'. This violates index invariants."
                     )
 
+                # Retrieving the latest annotation.
                 ann = ann_list[-1]
                 accession = ann.get("accession")
                 species = ann.get("species")
