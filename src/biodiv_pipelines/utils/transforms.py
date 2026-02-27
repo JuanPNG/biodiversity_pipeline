@@ -52,7 +52,7 @@ class FetchESFn(DoFn):
             query = {
                 'size': self.page_size,
                 'sort': {'tax_id': 'asc'},
-                'query': {'match': {'annotation_complete': 'Done'}}
+                'query': {'term': {'annotation_complete': 'Done'}}
             }
             if after:
                 query['search_after'] = after
