@@ -73,6 +73,13 @@ class FetchESFn(DoFn):
                 src = hit.get("_source", {})
                 ann_list = src.get("annotation") or []
 
+                if not ann_list:
+                    raise ValueError(
+                        f"Elasticsearch document with tax_id={src.get('tax_id')} "
+                        "has empty or missing 'annotation' array while "
+                        "annotation_complete='Done'. This violates index invariants."
+                    )
+
                 ann = ann_list[-1]
                 accession = ann.get("accession")
                 species = ann.get("species")
