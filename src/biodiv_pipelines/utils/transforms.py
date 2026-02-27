@@ -72,9 +72,6 @@ class FetchESFn(DoFn):
             for hit in hits:
                 src = hit.get("_source", {})
                 ann_list = src.get("annotation") or []
-                if not ann_list:
-                    self.skipped_missing_annotation.inc()
-                    continue
 
                 ann = ann_list[-1]
                 accession = ann.get("accession")
