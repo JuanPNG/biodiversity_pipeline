@@ -31,6 +31,8 @@ class FetchESFn(DoFn):
         self.index = index
         self.page_size = page_size
         self.max_pages = max_pages
+        self.emitted = Metrics.counter(self.__class__, "es_records_emitted")
+        self.pages_fetched = Metrics.counter(self.__class__, "es_pages_fetched")
 
     def setup(self):
         self.es = Elasticsearch(
@@ -40,7 +42,13 @@ class FetchESFn(DoFn):
 
     def process(self, element):
         after = None
-        for _ in range(self.max_pages):
+        page_i = 0
+
+        def should_continue(page_i: int) -> bool:
+            # max_pages <= 0 means "fetch all"
+            return (self.max_pages <= 0) or (page_i < self.max_pages)
+
+        while should_continue(page_i):
             query = {
                 'size': self.page_size,
                 'sort': {'tax_id': 'asc'},
@@ -54,8 +62,10 @@ class FetchESFn(DoFn):
             if not hits:
                 break
 
+            self.pages_fetched.inc()
             for hit in hits:
                 ann = hit['_source']['annotation'][-1]
+                self.emitted.inc()
                 yield {
                     'accession': ann['accession'],
                     'species': ann['species'],
@@ -63,6 +73,7 @@ class FetchESFn(DoFn):
                 }
 
             after = hits[-1].get('sort')
+            page_i += 1
 
 
 class ENATaxonomyFn(DoFn):
