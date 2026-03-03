@@ -152,13 +152,12 @@ def taxonomy_pipeline(args, beam_args):
 
             (
                 validated
-                | "PrepareBQRecords" >> beam.Map(lambda x: x)
                 | "WriteToBigQuery" >> beam.io.WriteToBigQuery(
                     table=args.bq_table,
                     schema=table_schema,
                     method="FILE_LOADS",
                     custom_gcs_temp_location=args.temp_location,
-                    write_disposition=beam.io.BigQueryDisposition.WRITE_TRUNCATE,
+                    write_disposition=beam.io.BigQueryDisposition.WRITE_APPEND,
                     create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED
                 )
             )
