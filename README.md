@@ -53,7 +53,12 @@ This project defines a modular data pipeline built with Apache Beam. The workflo
 ## Workflow Overview
 
 1. **Taxonomy pipeline**  
-   Fetch species annotations from Elasticsearch, enrich them with ENA taxonomy data, and validate scientific names via GBIF.
+Fetch species annotations from Elasticsearch, optionally filter out already processed species using a BigQuery gate table, enrich them with ENA taxonomy data, and validate scientific names via GBIF.
+
+Supports:
+- Pagination control via `--size` and `--pages`
+- Fetch-all mode (`--pages 0`)
+- Incremental processing of new species only when `--bq_gate_table` is provided
 
 2. **Occurrences pipeline**  
    Download GBIF occurrence records using validated GBIF usageKeys.
@@ -84,6 +89,12 @@ pip install -e .
 
 ### 1. Taxonomy pipeline
 Fetch genome metadata from Elasticsearch, enrich with ENA taxonomy, and validate species names using GBIF.
+
+Options:
+
+- `--pages N` limits the number of Elasticsearch pages retrieved.
+- `--pages 0` fetches all available species (until exhaustion).
+- If `--bq_gate_table` is provided, the pipeline processes only species whose `tax_id` is not already present in the specified BigQuery table.
 
 ```bash
 python -m biodiv_pipelines.taxonomy_pipeline \
@@ -216,6 +227,7 @@ python -m biodiv_pipelines.taxonomy_pipeline \
   --output gs://my-bucket/validated_taxonomy/taxonomy \
   --bq_table my-project:my_dataset.taxonomy \
   --bq_schema gs://my-bucket/utils/bq_taxonomy_schema.json \
+  --bq_gate_table my-project:my_dataset.bq_taxonomy_gate \
   --runner DataflowRunner \
   --project my-project \
   --region my-region \
@@ -225,6 +237,8 @@ python -m biodiv_pipelines.taxonomy_pipeline \
   --save_main_session \
   --max_num_workers=2
 ```
+
+When `--bq_gate_table` is specified, the pipeline reads existing `tax_id`s from this table and processes only new species. Both validated and to_check species are appended to the gate table with a timestamp and processing status.
 ### Example: Occurrence pipeline
 
 ```bash
