@@ -179,6 +179,35 @@ Outputs:
 
 - A `.jsonl` file with the species and its estimated range size (i.e., area of convex hull in km<sup>2</sup>).
 
+6. **Data provenance pipeline**  
+Uses the validated taxonomy output to drive targeted Elasticsearch lookups (by `tax_id`) and retrieves provenance links per species (Biodiversity Portal, GTF, Ensembl browser). Adds a GBIF species URL and appends results to the existing BigQuery table `bp_provenance_metadata`.
+
+### 6. Data provenance pipeline
+
+Fetch provenance metadata for validated species only (incremental), by querying Elasticsearch using the `tax_id`s present in `taxonomy_validated.jsonl`.  
+The pipeline batches requests to avoid excessive Elasticsearch calls and appends results to the existing BigQuery table `bp_provenance_metadata`.
+
+Required input:
+- `taxonomy_validated.jsonl` produced by the taxonomy pipeline
+
+Output fields:
+- `tax_id`, `accession`, `Biodiversity_portal`, `GTF`, `Ensembl_browser`, `gbif_url`
+
+Local run (JSONL only):
+
+```bash
+python -m biodiv_pipelines.data_provenance2_pipeline \
+  --taxonomy_path out/validated_taxonomy/taxonomy_validated.jsonl \
+  --host localhost \
+  --user elastic \
+  --password yourpassword \
+  --index your_es_index \
+  --min_batch_size 50 \
+  --max_batch_size 200 \
+  --output "out/provenance/provenance" \
+  --write_jsonl \
+  --direct_num_workers=1
+
 ___
 ## Cloud Deployment (Google Cloud Dataflow)
 
@@ -316,3 +345,30 @@ python -m biodiv_pipelines.range_estimation_pipeline \
   --save_main_session \
   --max_num_workers=2
 ```
+
+### Example: Data provenance
+
+```bash
+python -m biodiv_pipelines.data_provenance2_pipeline \
+  --taxonomy_path out/validated_taxonomy/taxonomy_validated.jsonl \
+  --host localhost \
+  --user elastic \
+  --password yourpassword \
+  --index your_es_index \
+  --min_batch_size 50 \
+  --max_batch_size 200 \
+  --bq_table my-project:my_dataset.bp_provenance_metadata \
+  --bq_schema "gs://my-bucket/utils/bq_metadata_url_schema.json" \
+  --temp_location gs://my-bucket/temp \
+  --output "gs://my-bucket/out/provenance/provenance" \
+  --runner DataflowRunner \
+  --project my-project \
+  --region my-region \
+  --staging_location gs://my-bucket/staging \
+  --save_main_session
+  ```
+**Notes:**
+
+The pipeline is incremental because it only processes species present in taxonomy_validated.jsonl (which can itself be gated by the taxonomy pipeline gate table).
+
+BigQuery writes use WRITE_APPEND into the existing bp_provenance_metadata table.
