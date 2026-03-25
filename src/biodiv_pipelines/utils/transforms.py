@@ -715,6 +715,51 @@ class AnnotateWithBiogeoFn(DoFn):
 
 
 class BiogeoSummaryNestedFn(DoFn):
+    """
+    Aggregate biogeographic annotations per accession into a nested summary structure.
+
+    This DoFn expects grouped records of the form:
+        (accession, Iterable[record])
+
+    Each record may contain a dictionary of biogeographic annotations under
+    `self.output_key` (e.g. "biogeo_Ecoregion"), where values are lists of
+    categorical attributes such as realm, biome, or ecoregion.
+
+    For each accession, the transform:
+        - collects all values across records for each field
+        - deduplicates them using sets
+        - computes the number of unique values per field
+        - returns a nested summary with both counts and sorted values
+
+    Output format:
+        (accession, {
+            "accession": str,
+            "species": str,
+            "tax_id": str,
+            <output_key>: {
+                <field>: {
+                    "count": int,
+                    "values": List[str]
+                },
+                ...
+            }
+        })
+
+    Parameters
+    ----------
+    output_key : str, optional
+        Key in each input record containing the biogeographic annotation
+        dictionary. Also used as the key under which the nested summary is
+        stored in the output.
+
+    Notes
+    -----
+    - Assumes input records are grouped by accession (e.g. via GroupByKey).
+    - Only list-type values in the annotation dictionary are aggregated.
+    - Values are deduplicated and sorted to ensure deterministic output.
+    - Metadata fields (species, tax_id) are taken from the first record
+      in the group.
+    """
     def __init__(self, output_key="biogeo_Ecoregion"):
         self.output_key = output_key
 
@@ -746,7 +791,7 @@ class BiogeoSummaryNestedFn(DoFn):
             "accession": accession,
             "species": species,
             "tax_id": tax_id,
-            "biogeo_Ecoregion": nested
+            self.output_key: nested
         }
 
         output = (accession, summary)
