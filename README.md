@@ -1,3 +1,376 @@
+# Biodiversity pipelines
+
+Apache Beam batch pipelines for taxonomy validation, occurrence retrieval, cleaning, spatial annotation, range estimation, and provenance export.
+
+## Quick start
+
+### 1. Install dependencies
+
+Use Python 3.12 and install the project dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Prerequisites
+
+* Python 3.11
+* Access to Elasticsearch (host, user, password, index)
+* Local disk space for intermediate outputs (`out/`)
+
+### 3. Required data
+
+Download and place the following datasets locally (or use accessible paths):
+
+* Land polygons (Natural Earth):
+
+```bash
+# example structure
+data/spatial_processing/ne_10m_land/ne_10m_land.shp
+```
+
+* Administrative centroids:
+
+```bash
+data/spatial_processing/ne_10m_admin_0_label_points/ne_10m_admin_0_label_points.shp
+```
+
+* Climate rasters (CHELSA):
+
+```bash
+data/climate/*.tif
+```
+
+* Biogeographic regions (Ecoregions):
+
+```bash
+data/bioregions/Ecoregions2017.shp
+```
+
+### 4. Project layout
+
+Main pipeline entry points:
+
+* `taxonomy_pipeline.py`
+* `occurrences_pipeline.py`
+* `cleaning_occs_pipeline.py`
+* `spatial_annotation_pipeline.py`
+* `range_estimation_pipeline.py`
+* `data_provenance_pipeline.py`
+
+### 3. Run pattern
+
+Each pipeline follows the same local pattern:
+
+```bash
+python -m biodiv_pipelines.<pipeline> --arg1 value1 --arg2 value2
+```
+
+Beam runner options can also be passed after the pipeline arguments when needed.
+
+## Pipeline order
+
+Recommended execution order:
+
+1. Taxonomy
+2. Occurrences
+3. Cleaning
+4. Spatial annotation
+5. Range estimation
+6. Data provenance
+
+## Minimal local execution (development)
+
+Run pipelines locally using the DirectRunner (default).
+
+Ensure all input data exists in GCS or in your local directories before running (schemas, climate, bioregions, etc.).
+
+Define your variables:
+
+```bash
+export PROJECT_ID=<project-id>
+export REGION=<your-region>
+export BUCKET=gs://<your-bucket>
+export BQ_DATASET=<your-bq-dataset>
+```
+### Taxonomy
+
+```bash
+python -m biodiv_pipelines.taxonomy_pipeline \
+  --host <host> \
+  --user <user> \
+  --password <password> \
+  --index <index> \
+  --output "${BUCKET}/out/taxonomy/taxonomy" \
+  --size 10 \
+  --pages 1 \
+  --sleep 0.25 \
+  --bq_table "${PROJECT_ID}.${BQ_DATASET}.bq_taxonomy_validated" \
+  --bq_schema "${BUCKET}/schemas/bq_taxonomy_schema.json" \
+  --bq_gate_table "${PROJECT_ID}.${BQ_DATASET}.bp_log_taxonomy" \
+  --temp_location "${BUCKET}/temp" \
+  --project "${PROJECT_ID}" \
+  --runner DirectRunner
+```
+
+**Supports:**
+- Pagination control via `--size` and `--pages`
+- Fetch-all mode (`--pages 0`)
+- Incremental processing of new species only when `--bq_gate_table` is provided
+- BigQuery output only when `--bq_table`. `--bq_schema` and `--temp_location` are provided.
+- `--output` can be a local file or a GCS path
+
+**Expected output:**
+```text
+out/taxonomy/
+├── taxonomy_validated.jsonl
+└── taxonomy_tocheck.jsonl
+```
+- `taxonomy_validated.jsonl`: species validated against GBIF and ready for the occurrences pipeline
+- `taxonomy_tocheck.jsonl`: unresolved or lower-confidence matches that need manual review. Contains species with FUZZY, HIGHER RANK, and SYNONYMS matches.
+
+
+### Occurrences
+
+```bash
+python -m biodiv_pipelines.occurrences_pipeline \
+  --validated_input "${BUCKET}/out/taxonomy/taxonomy_validated.jsonl" \
+  --output_dir "${BUCKET}/out/occurrences/raw" \
+  --limit 10 \
+  --runner DirectRunner
+```
+**NOTE**: using pygbif module occurrences.search.
+
+**Supports:**
+- `--limit` to limit the number of occurrences downloaded. Three hundred max.
+- `--output_dir` to specify the output directory for raw occurrence records
+- `--validated_input` and `--output_dir` support local files and GCS paths.
+
+**Expected output:**
+```text
+out/occurrences/
+├── occ_<species_name>.jsonl
+├── summary_occ_download.jsonl
+└── dead_records.jsonl   # only if failures occur
+```
+
+- `occ_<species_name>.jsonl`: one file per validated species with GBIF occurrence records
+- `summary_occ_download.jsonl`: aggregate counts for succeeded species, failed species, and written occurrences
+- `dead_records.jsonl`: failed GBIF retrievals, if any
+
+
+### Cleaning
+
+```bash
+python -m biodiv_pipelines.cleaning_occs_pipeline \
+  --input_glob "${BUCKET}/out/occurrences/occ_*.jsonl" \
+  --output_dir "${BUCKET}/out/occurrences/clean" \
+  --land_shapefile "${BUCKET}/data/spatial_processing/ne_10m_land/ne_10m_land.shp" \
+  --centroid_shapefile "${BUCKET}/data/spatial_processing/ne_10m_admin_0_label_points/ne_10m_admin_0_label_points.shp" \
+  --min_uncertainty 1000 \
+  --max_uncertainty 5000 \
+  --max_centroid_dist 5000 \
+  --output_consolidated "${BUCKET}/out/pp/occurrences/clean/all_species" \
+  --bq_table "${PROJECT_ID}.${BQ_DATASET}.bp_gbif_occurrences" \
+  --bq_schema "${BUCKET}/schemas/bq_gbif_occurrences_schema.json" \
+  --temp_location "${BUCKET}/temp" \
+  --staging_location "${BUCKET}/staging" \
+  --project "${PROJECT_ID}" \
+  --runner DirectRunner
+```
+Filter raw occurrence records by removing invalid coordinates, centroids, marine points, and duplicates.
+
+**Supports:**
+- `land_shapefile` and `centroid_shapefile` are paths to shapefiles containing the land and centroids of the world.
+- `min_uncertainty` and `max_uncertainty` are the maximum allowed uncertainty in meters for coordinates.
+- `max_centroid_dist` is the maximum allowed distance in meters between a point and its centroid.
+- `--output_consolidated` can be a local file or a GCS path.
+- BigQuery output only when `--bq_table`, `--bq_schema`, and `--temp_location` are provided.
+- All input and output files can be local or GCS paths.
+
+**Expected output:**
+```text
+```text
+out/occurrences/clean/
+├── occ_<species_name>.jsonl
+└── all_species.jsonl    # only if --output_consolidated is provided
+```
+
+- `occ_<species_name>.jsonl`: cleaned and deduplicated occurrences per species
+- `all_species.jsonl`: consolidated cleaned occurrences across all species if `--output_consolidated` is provided.
+
+
+### Spatial annotation
+
+```bash
+python -m biodiv_pipelines.spatial_annotation_pipeline \
+  --input_occs "${BUCKET}/out/occurrences_clean/occ_*.jsonl" \
+  --climate_dir "${BUCKET}/data/climate" \
+  --biogeo_vector "${BUCKET}/data/bioregions/Ecoregions2017.shp" \
+  --annotated_output "${BUCKET}/out/spatial/annotated" \
+  --summary_output "${BUCKET}/out/spatial/summary" \
+  --bq_summary_table "${PROJECT_ID}.${BQ_DATASET}.bp_spatial_annotations" \
+  --bq_schema "${BUCKET}/schemas/bq_spatial_annotation_summ_schema.json" \
+  --temp_location "${BUCKET}/temp" \
+  --staging_location "${BUCKET}/staging" \
+  --project "${PROJECT_ID}" \
+  --runner DirectRunner
+```
+Use cleaned occurrence records to extract climate and area classification information from spatial data layers. At the moment: CHELSA climatologies and WWF Ecorregions (Dinnerstein et al. 2017).
+
+**Supports:**
+- `climate_dir` and `biogeo_vector` are paths to shapefiles containing the land and centroids of the world.
+- `annotated_output` and `summary_output` are paths to output directories.
+- BigQuery output only when `--bq_summary_table`, `--bq_schema`, and `--temp_location` are provided.
+- All input and output files can be local or GCS paths.
+
+**Expected outpur:**
+```text
+out/spatial/
+├── annotated.jsonl
+└── summary.jsonl
+```
+
+- `annotated.jsonl`: occurrence-level climate and biogeographic annotations
+- `summary.jsonl`: accession-level summary statistics for climate and biogeographic regions
+
+
+### Range estimation
+
+This pipeline uses the `range_km2` field in the occurrence records to estimate the geographic range of each species.
+
+It does not produce a text file output like the other pipelines. Instead, it writes the results to a BigQuery table.
+
+```bash
+python range_estimation_pipeline.py \
+  --input_glob "${BUCKET}/out/occurrences/clean/occ_*.jsonl" \
+  --bq_table "${PROJECT_ID}.${BQ_DATASET}.bp_species_range_estimates" \
+  --bq_schema "${BUCKET}/schemas/bq_range_estimates_schema.json" \
+  --temp_location "${BUCKET}/temp" \
+  --staging_location "${BUCKET}/staging" \
+  --project "${PROJECT_ID}" \
+  --runner DirectRunner
+```
+**Expected output:**
+- One row per species with estimated convex hull range area in km²
+- If fewer than 3 valid coordinates are available, range_km2 is null and a note is added
+
+
+### Data provenance
+
+```bash
+python -m biodiv_pipelines.data_provenance_pipeline \
+  --taxonomy_path "${BUCKET}/out/taxonomy_validated.jsonl" \
+  --host <host> \
+  --user <user> \
+  --password <password> \
+  --index <index> \
+  --min_batch_size 50 \
+  --max_batch_size 200 \
+  --taxonomy_path "${BUCKET}/out/taxonomy/taxonomy_validated.jsonl" \
+  --output "${BUCKET}/out/metadata/provenance_urls_new.jsonl" \
+  --bq_table "${PROJECT_ID}.${BQ_DATASET}.bp_provenance_metadata" \
+  --bq_schema "${BUCKET}/schemas/bq_metadata_url_schema.json" \
+  --temp_location "${BUCKET}/temp" \
+  --staging_location "${BUCKET}/staging" \
+  --project "${PROJECT_ID}" \
+  --runner DirectRunner
+```
+**Supports:**
+- `min_batch_size` and `max_batch_size` control the number of species per batch in Beam. Adjust only if there are performance issues.
+- BigQuery output only when `--bq_table`, `--bq_schema`, and `--temp_location` are provided.
+- All input and output files can be local or GCS paths.
+
+**Expected output:**
+```text
+out/metadata/
+└── provenance_urls_new.jsonl
+```
+- One row per species with source URLs and identifiers, including Biodiversity Portal, GTF, Ensembl browser, and GBIF links.
+
+
+## Run on Google Cloud Dataflow
+
+Use Dataflow after validating the pipelines locally.
+
+### 1. Build and push the Docker image
+
+Define variables:
+
+```bash
+export PROJECT_ID=<project-id>
+export REGION=<your-region>
+export BUCKET=gs://<your-bucket>
+export TAG=<your-tag>
+export IMAGE=${REGION}-docker.pkg.dev/${PROJECT_ID}/biodiversity-images/biodiv-pipeline:${TAG}
+```
+
+### Build and push the Docker image
+
+In the project root, execute the following commands:
+
+Using Docker:
+
+```bash
+docker build --no-cache -f Dockerfile -t ${IMAGE} .
+docker push ${IMAGE}
+```
+Or directly on Google Cloud using the gcloud library:
+
+```bash
+gcloud builds submit . \
+  --tag ${IMAGE} \
+  --project ${PROJECT_ID}
+```
+
+### 2. Example: Taxonomy pipeline on Dataflow
+
+```bash
+python -m biodiv_pipelines.taxonomy_pipeline \
+  --host <host> \
+  --user <user> \
+  --password <password> \
+  --index <index> \
+  --size 10 \
+  --pages 1 \
+  --sleep 0.25 \
+  --output "${BUCKET}/out/taxonomy/taxonomy" \
+  --bq_table "${PROJECT_ID}.${BQ_DATASET}.bq_taxonomy_validated" \
+  --bq_schema "${BUCKET}/schemas/bq_taxonomy_schema.json" \
+  --bq_gate_table "${PROJECT_ID}.${BQ_DATASET}.bp_log_taxonomy" \
+  --runner DataflowRunner \
+  --project "${PROJECT_ID}" \
+  --region "${REGION}" \
+  --temp_location "${BUCKET}/temp" \
+  --staging_location "${BUCKET}/staging" \
+  --sdk_container_image "${IMAGE}" \
+  --save_main_session
+```
+
+### 3. Pattern for other pipelines
+
+To run any other pipeline on Dataflow:
+
+1. Start from the local command
+2. Replace:
+local paths → `gs://` paths & `--runner DirectRunner `→ `--runner DataflowRunner`
+3. Ensure the following flags are always present:
+
+```bash
+--runner DataflowRunner \
+--project "${PROJECT_ID}" \
+--region "${REGION}" \
+--temp_location "${BUCKET}/temp" \
+--staging_location "${BUCKET}/staging" \
+--sdk_container_image "${IMAGE}" \
+--save_main_session
+```
+
+
+---
+OLD - TO DELETE LATER
+---
+---
 # Biodiversity Pipeline (Apache Beam)
 
 This project defines a modular data pipeline built with Apache Beam. The workflow consists of four primary pipelines that process biological species data from retrieval through spatial annotation and summarisation.
@@ -207,7 +580,7 @@ python -m biodiv_pipelines.data_provenance2_pipeline \
   --output "out/provenance/provenance" \
   --write_jsonl \
   --direct_num_workers=1
-
+```
 ___
 ## Cloud Deployment (Google Cloud Dataflow)
 
