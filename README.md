@@ -366,6 +366,71 @@ local paths → `gs://` paths & `--runner DirectRunner `→ `--runner DataflowRu
 --save_main_session
 ```
 
+## Run using Dataflow Flex Templates
+
+For production and orchestration (e.g. Cloud Composer), pipelines should be executed using Dataflow Flex Templates instead of direct `python -m` submission.
+
+Flex Templates package:
+- the pipeline code
+- dependencies (via Docker image)
+- runtime parameters
+
+---
+
+### 1. Build and register the Flex Template
+
+Define variables:
+
+```bash
+export PROJECT_ID=<project-id>
+export REGION=<region>
+export BUCKET=gs://<your-bucket>
+export TAG=<your-tag>
+export IMAGE=${REGION}-docker.pkg.dev/${PROJECT_ID}/biodiversity-images/biodiversity-flex:${TAG}
+export TEMPLATE_PATH=${BUCKET}/flex-templates/flex-<pipeline>.json
+```
+
+### 2. Build and push the container image
+
+```bash
+gcloud builds submit . \
+  --tag ${IMAGE} \
+  --project ${PROJECT_ID}
+```
+
+### 3. Build the Flex Template
+
+```bash
+gcloud dataflow flex-template build ${TEMPLATE_PATH} \
+  --image=${IMAGE} \
+  --sdk-language=PYTHON \
+  --metadata-file=metadata_<pipeline>.json \
+  --project=${PROJECT_ID}
+```
+
+### 4. Run the Flex Template
+
+```bash
+gcloud dataflow flex-template run taxonomy-job-$(date +%Y%m%d-%H%M%S) \
+  --template-file-gcs-location=${TEMPLATE_PATH} \
+  --region=${REGION} \
+  --parameters pipeline=taxonomy \
+  --parameters host=<host> \
+  --parameters user=<user> \
+  --parameters password=<password> \
+  --parameters index=<index> \
+  --parameters size=10 \
+  --parameters pages=1 \
+  --parameters sleep=0.25 \
+  --parameters output="${BUCKET}/out/taxonomy/taxonomy" \
+  --parameters bq_table="${PROJECT_ID}.${BQ_DATASET}.bq_taxonomy_validated" \
+  --parameters bq_schema="${BUCKET}/schemas/bq_taxonomy_schema.json" \
+  --parameters bq_gate_table="${PROJECT_ID}.${BQ_DATASET}.bp_log_taxonomy" \
+  --parameters temp_location="${BUCKET}/temp" \
+  --parameters sdk_container_image=${IMAGE} \
+  --parameters experiments=use_runner_v2
+```
+
 
 ---
 OLD - TO DELETE LATER
