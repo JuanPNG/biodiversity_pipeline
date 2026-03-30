@@ -48,6 +48,7 @@ def taxonomy_pipeline(args, beam_args):
                     """,
                     use_standard_sql=True,
                     gcs_location=args.temp_location,
+                    temp_dataset=args.bq_temp_dataset,
                 )
                 | "BQTaxIdToKV" >> beam.Map(to_kv_existing_tax_id)
             )
@@ -185,6 +186,7 @@ if __name__ == "__main__":
     parser.add_argument("--temp_location", help="GCS temp path for BQ file loads", required=False)
     parser.add_argument("--bq_schema", help="Path to BQ schema JSON")
     parser.add_argument("--bq_gate_table", help="BigQuery table for gating (project.dataset.table)")
+    parser.add_argument("--bq_temp_dataset", help="BigQuery dataset for temporal query's results produced in apache beam (dataset)")
 
     args, beam_args = parser.parse_known_args()
     taxonomy_pipeline(args, beam_args)
