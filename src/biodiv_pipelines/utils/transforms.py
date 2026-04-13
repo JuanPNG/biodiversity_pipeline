@@ -280,6 +280,8 @@ class WriteSpeciesOccurrencesFn(DoFn):
                 else:
                     raise
 
+        raise RuntimeError("Unreachable: retry loop exited without return or exception")
+
     def process(self, record):
         species = record.get("scientificName")
         usage_key = record.get("gbif_usageKey")
