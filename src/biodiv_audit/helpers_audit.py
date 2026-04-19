@@ -1,3 +1,4 @@
+import argparse
 import ast
 import os
 
@@ -308,3 +309,114 @@ def write_audit_species_jsonl(
                 matched += 1
 
     return matched, output_path
+
+
+def write_taxonomy_tocheck_audit_jsonls(
+    bucket_name: str,
+    taxonomy_tocheck_blob: str,
+    output_dir: str | Path = "./out/audit",
+) -> tuple[int, Path, int, Path]:
+    """
+    Read taxonomy_tocheck.jsonl from GCS and split it into:
+    - rerun_taxonomy_validation.jsonl for records with ena_error
+    - taxonomic_issue.jsonl for records with gbif_matchType
+
+    Returns:
+        (n_rerun_validation, rerun_validation_path,
+         n_taxonomic_issue, taxonomic_issue_path)
+    """
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    blob = bucket.blob(taxonomy_tocheck_blob)
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    rerun_validation_path = output_dir / "audit_rerun_taxonomy_validation.jsonl"
+    taxonomic_issue_path = output_dir / "audit_rerun_taxonomic_issue.jsonl"
+
+    n_rerun_validation = 0
+    n_taxonomic_issue = 0
+
+    with blob.open("r") as src, \
+        rerun_validation_path.open("w", encoding="utf-8") as rerun_dst, \
+        taxonomic_issue_path.open("w", encoding="utf-8") as issue_dst:
+
+        for line in src:
+            line = line.strip()
+            if not line:
+                continue
+
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                record = ast.literal_eval(line)
+
+            if "ena_error" in record and record["ena_error"]:
+                rerun_dst.write(json.dumps(record, ensure_ascii=False) + "\n")
+                n_rerun_validation += 1
+            elif "gbif_matchType" in record:
+                issue_dst.write(json.dumps(record, ensure_ascii=False) + "\n")
+                n_taxonomic_issue += 1
+
+    return (
+        n_rerun_validation,
+        rerun_validation_path,
+        n_taxonomic_issue,
+        taxonomic_issue_path,
+    )
+
+
+def write_audit_summary_jsonl(
+    summary: dict[str, int],
+    output_path: str | Path,
+) -> tuple[dict[str, int], Path]:
+    """
+    Write a one-line JSONL audit summary from precomputed counters.
+    """
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with output_path.open("w", encoding="utf-8") as f:
+        f.write(json.dumps(summary, ensure_ascii=False) + "\n")
+
+    return summary, output_path
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Audit a biodiversity pipeline run and write audit artifacts."
+    )
+
+    parser.add_argument(
+        "--project-id",
+        default=os.getenv("PROJECT_ID"),
+        help="GCP project id. Defaults to PROJECT_ID env var.",
+    )
+    parser.add_argument(
+        "--bucket-name",
+        default=os.getenv("BUCKET_NAME"),
+        help="GCS bucket name. Defaults to BUCKET_NAME env var.",
+    )
+    parser.add_argument(
+        "--bucket-prefix",
+        default="biodiv-pipelines-dev/runs/",
+        help="Run root prefix inside the bucket.",
+    )
+    parser.add_argument(
+        "--window-start",
+        required=True,
+        help="Run window start date, e.g. 2026-04-09.",
+    )
+    parser.add_argument(
+        "--run-ts",
+        required=True,
+        help="Run timestamp, e.g. 20260409T140858.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default="./out/audit",
+        help="Local directory where audit artifacts will be written.",
+    )
+
+    return parser.parse_args()
